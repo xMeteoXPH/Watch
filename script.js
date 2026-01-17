@@ -171,6 +171,7 @@ function loadVideo(videoObject, syncToRoom = true) {
     const videoPlayer = document.getElementById('videoPlayer');
     const videoSource = document.getElementById('videoSource');
     const videoInfo = document.getElementById('videoInfo');
+    const customControls = document.getElementById('customControls');
 
     videoSource.src = videoObject.url;
     videoPlayer.load();
@@ -180,6 +181,15 @@ function loadVideo(videoObject, syncToRoom = true) {
     `;
 
     currentVideo = videoObject;
+
+    // Show custom controls when video loads
+    videoPlayer.addEventListener('loadedmetadata', function showControls() {
+        if (customControls) {
+            customControls.style.display = 'flex';
+        }
+        updatePlayPauseButton();
+        videoPlayer.removeEventListener('loadedmetadata', showControls);
+    }, { once: true });
 
     // If in a room and syncToRoom is true, share video with room
     if (currentRoom && syncToRoom) {
@@ -646,6 +656,7 @@ function leaveRoom() {
         const videoSource = document.getElementById('videoSource');
         const videoInfo = document.getElementById('videoInfo');
         const fileInfo = document.getElementById('fileInfo');
+        const customControls = document.getElementById('customControls');
         
         if (videoPlayer && videoSource) {
             videoSource.src = '';
@@ -659,6 +670,11 @@ function leaveRoom() {
         if (fileInfo) {
             fileInfo.classList.remove('active');
             fileInfo.innerHTML = '';
+        }
+        
+        // Hide custom controls
+        if (customControls) {
+            customControls.style.display = 'none';
         }
         
         currentVideo = null;
@@ -1039,7 +1055,82 @@ function setupVideoSync() {
         if (currentRoom) {
             checkForVideoSync();
         }
+        // Show custom controls when video is loaded
+        const customControls = document.getElementById('customControls');
+        if (customControls) {
+            customControls.style.display = 'flex';
+        }
+        updatePlayPauseButton();
     });
+    
+    // Update play/pause button icon
+    videoPlayer.addEventListener('play', function() {
+        updatePlayPauseButton();
+    });
+    
+    videoPlayer.addEventListener('pause', function() {
+        updatePlayPauseButton();
+    });
+}
+
+// ============ CUSTOM VIDEO CONTROLS ============
+
+// Skip forward 10 seconds
+function skipForward() {
+    const videoPlayer = document.getElementById('videoPlayer');
+    if (!videoPlayer || !currentVideo) return;
+    
+    const newTime = Math.min(videoPlayer.currentTime + 10, videoPlayer.duration);
+    videoPlayer.currentTime = newTime;
+    
+    // Sync to room
+    if (currentRoom && socket && isConnected) {
+        updateVideoStateInRoom('seek', newTime);
+    }
+}
+
+// Skip backward 10 seconds
+function skipBackward() {
+    const videoPlayer = document.getElementById('videoPlayer');
+    if (!videoPlayer || !currentVideo) return;
+    
+    const newTime = Math.max(videoPlayer.currentTime - 10, 0);
+    videoPlayer.currentTime = newTime;
+    
+    // Sync to room
+    if (currentRoom && socket && isConnected) {
+        updateVideoStateInRoom('seek', newTime);
+    }
+}
+
+// Toggle play/pause
+function togglePlayPause() {
+    const videoPlayer = document.getElementById('videoPlayer');
+    if (!videoPlayer || !currentVideo) return;
+    
+    if (videoPlayer.paused) {
+        videoPlayer.play();
+    } else {
+        videoPlayer.pause();
+    }
+    
+    // Sync happens automatically via the play/pause event listeners
+}
+
+// Update play/pause button icon
+function updatePlayPauseButton() {
+    const videoPlayer = document.getElementById('videoPlayer');
+    const playPauseBtn = document.getElementById('playPauseBtn');
+    
+    if (!videoPlayer || !playPauseBtn) return;
+    
+    if (videoPlayer.paused) {
+        playPauseBtn.textContent = '▶️';
+        playPauseBtn.title = 'Play';
+    } else {
+        playPauseBtn.textContent = '⏸️';
+        playPauseBtn.title = 'Pause';
+    }
 }
 
 // Share video to room
@@ -1163,14 +1254,25 @@ function applyVideoState(videoState) {
         videoPlayer.currentTime = videoState.currentTime;
     }
     
+    // Sync time if there's a significant difference (>1 second) or if it's a seek action
+    if (videoState.action === 'seek') {
+        videoPlayer.currentTime = videoState.currentTime;
+    } else {
+        const timeDiff = Math.abs(videoPlayer.currentTime - videoState.currentTime);
+        if (timeDiff > 1) {
+            videoPlayer.currentTime = videoState.currentTime;
+        }
+    }
+    
     // Sync play/pause state
     if (videoState.action === 'play' && videoPlayer.paused) {
         videoPlayer.play().catch(e => console.log('Play failed:', e));
     } else if (videoState.action === 'pause' && !videoPlayer.paused) {
         videoPlayer.pause();
-    } else if (videoState.action === 'seek') {
-        videoPlayer.currentTime = videoState.currentTime;
     }
+    
+    // Update play/pause button icon
+    updatePlayPauseButton();
     
     // Reset sync flag after a delay
     setTimeout(() => {

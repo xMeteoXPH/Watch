@@ -73,6 +73,11 @@
                                     <source id="videoSource" src="" type="video/mp4">
                                     Your browser does not support the video tag.
                                 </video>
+                                <div class="custom-controls" id="customControls" style="display: none;">
+                                    <button class="control-btn" onclick="skipBackward()" title="Rewind 10 seconds">⏪ -10s</button>
+                                    <button class="control-btn" onclick="togglePlayPause()" id="playPauseBtn" title="Play/Pause">⏸️</button>
+                                    <button class="control-btn" onclick="skipForward()" title="Forward 10 seconds">⏩ +10s</button>
+                                </div>
                                 <div class="subtitle-overlay" id="subtitleOverlay">
                                     <div class="subtitle-text" id="subtitleText"></div>
                                 </div>
