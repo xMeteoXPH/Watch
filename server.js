@@ -23,7 +23,8 @@ const PORT = process.env.PORT || 3000;
 // Middleware
 app.use(cors());
 app.use(express.json());
-app.use(express.static('public'));
+// Serve static files from root directory (HTML, CSS, JS)
+app.use(express.static(__dirname));
 
 // Create uploads directory if it doesn't exist
 const uploadsDir = path.join(__dirname, 'uploads');
@@ -78,6 +79,11 @@ function getOrCreateRoom(roomCode) {
 }
 
 // API Routes
+
+// Serve the main webpage
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
+});
 
 // Upload video file
 app.post('/api/upload', upload.single('video'), (req, res) => {
@@ -328,9 +334,15 @@ io.on('connection', (socket) => {
   });
 });
 
+// Serve the main HTML file for root route
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
+});
+
 // Start server
 server.listen(PORT, () => {
   console.log(`🎬 MovieHub Server running on port ${PORT}`);
   console.log(`📁 Uploads directory: ${uploadsDir}`);
+  console.log(`🌐 Access your webpage at: http://localhost:${PORT}`);
 });
 
