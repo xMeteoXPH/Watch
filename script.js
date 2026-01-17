@@ -102,41 +102,81 @@ function handleFileSelect(event) {
 }
 
 // Handle file upload
-function handleFileUpload(file) {
+async function handleFileUpload(file) {
     // Check if file is a video
     if (!file.type.startsWith('video/')) {
         alert('Please upload a video file (MP4, MKV, etc.)');
         return;
     }
 
-    // Create object URL for the video
-    const videoURL = URL.createObjectURL(file);
+    // Show upload progress
+    const fileInfo = document.getElementById('fileInfo');
+    if (fileInfo) {
+        fileInfo.innerHTML = `<p style="color: #667eea;">⏳ Uploading "${file.name}" to server...</p>`;
+        fileInfo.classList.add('active');
+    }
 
-    // Create video object
-    const videoObject = {
-        id: Date.now().toString(),
-        name: file.name,
-        size: formatFileSize(file.size),
-        type: file.type,
-        url: videoURL,
-        file: file,
-        uploadDate: new Date().toLocaleDateString()
-    };
+    try {
+        // Upload file to server
+        const formData = new FormData();
+        formData.append('video', file);
 
-    // Add to uploaded videos array
-    uploadedVideos.push(videoObject);
-    
-    // Save to localStorage (as metadata only, not the actual file)
-    saveVideosToStorage();
+        console.log('Uploading file to server:', file.name);
+        const response = await fetch(`${SERVER_URL}/api/upload`, {
+            method: 'POST',
+            body: formData
+        });
 
-    // Display file info
-    displayFileInfo(videoObject);
+        if (!response.ok) {
+            throw new Error(`Upload failed: ${response.statusText}`);
+        }
 
-    // Load the video in player
-    loadVideo(videoObject);
+        const data = await response.json();
+        console.log('Upload response:', data);
 
-    // Update movies library
-    updateMoviesLibrary();
+        if (!data.success || !data.video) {
+            throw new Error('Server did not return video data');
+        }
+
+        // Create video object with server URL
+        const videoMimeType = data.video.type || file.type || 'video/mp4';
+        const videoUrl = `${SERVER_URL}/api/video/${data.video.filename}?type=${encodeURIComponent(videoMimeType)}`;
+        
+        const videoObject = {
+            id: data.video.id,
+            name: data.video.name,
+            size: formatFileSize(data.video.size || file.size),
+            type: videoMimeType,
+            url: videoUrl,
+            filename: data.video.filename,
+            uploadDate: new Date().toLocaleDateString(),
+            fromServer: true
+        };
+
+        // Add to uploaded videos array
+        uploadedVideos.push(videoObject);
+        
+        // Save to localStorage
+        saveVideosToStorage();
+
+        // Display file info
+        displayFileInfo(videoObject);
+
+        // Load the video in player (this will also share to room if in one)
+        loadVideo(videoObject);
+
+        // Update movies library
+        updateMoviesLibrary();
+
+        console.log('Video uploaded successfully:', videoObject);
+
+    } catch (error) {
+        console.error('Upload error:', error);
+        if (fileInfo) {
+            fileInfo.innerHTML = `<p style="color: red;">❌ Upload failed: ${error.message}. Please try again.</p>`;
+        }
+        alert(`Failed to upload video: ${error.message}`);
+    }
 
     // Reset file input
     document.getElementById('fileInput').value = '';
@@ -175,15 +215,55 @@ function loadVideo(videoObject, syncToRoom = true) {
 
     if (!videoPlayer || !videoSource) return;
 
-    videoSource.src = videoObject.url;
-    // Set the correct MIME type for the video source
-    if (videoObject.type) {
-        videoSource.type = videoObject.type;
-    } else {
-        // Default to mp4 if type not specified
-        videoSource.type = 'video/mp4';
-    }
-    videoPlayer.load();
+    console.log('Loading video:', videoObject.name, 'URL:', videoObject.url, 'Type:', videoObject.type);
+
+    // Pause and clear current video
+    videoPlayer.pause();
+    
+    // Remove all existing source elements
+    const sources = videoPlayer.querySelectorAll('source');
+    sources.forEach(source => source.remove());
+    
+    // Clear direct src if set
+    videoPlayer.removeAttribute('src');
+    
+    // Set playsinline attribute for mobile (already in HTML but ensure it's set)
+    videoPlayer.setAttribute('playsinline', 'true');
+    videoPlayer.setAttribute('webkit-playsinline', 'true');
+    videoPlayer.setAttribute('preload', 'auto');
+    
+    // Small delay to ensure clearing is complete, then set new source
+    setTimeout(() => {
+        // Update existing source element or create new one
+        if (videoSource) {
+            videoSource.src = videoObject.url;
+            videoSource.type = videoObject.type || 'video/mp4';
+        } else {
+            // Create new source element if it doesn't exist
+            const newSource = document.createElement('source');
+            newSource.id = 'videoSource';
+            newSource.src = videoObject.url;
+            newSource.type = videoObject.type || 'video/mp4';
+            videoPlayer.appendChild(newSource);
+        }
+        
+        // Force reload the video
+        videoPlayer.load();
+        
+        console.log('Video load() called. Source src:', videoSource ? videoSource.src : 'N/A', 'Video readyState:', videoPlayer.readyState);
+        
+        // Check if video loaded successfully after a delay
+        setTimeout(() => {
+            if (videoPlayer.readyState === 0) {
+                console.warn('Video readyState is still 0, checking network state:', videoPlayer.networkState);
+                if (videoPlayer.networkState === 2 || videoPlayer.networkState === 3) {
+                    console.error('Video network error detected. Retrying...');
+                    // Retry loading
+                    videoPlayer.load();
+                }
+            }
+        }, 500);
+    }, 100);
 
     videoInfo.innerHTML = `
         <p><strong>Now Playing:</strong> ${videoObject.name}</p>
@@ -777,27 +857,41 @@ function loadVideoFromServer(videoData) {
             updatePlayPauseButton();
         };
         
-        // Add error handler to see if video fails to load
-        videoPlayer.addEventListener('error', (e) => {
-            console.error('Video load error:', e);
+        // Add comprehensive error handler
+        const errorHandler = (e) => {
+            console.error('Video load error for other user:', e);
             console.error('Video src:', videoPlayer.src);
+            console.error('Video source src:', videoPlayer.querySelector('source')?.src);
             console.error('Video readyState:', videoPlayer.readyState);
             const error = videoPlayer.error;
             if (error) {
                 console.error('Video error code:', error.code);
                 console.error('Video error message:', error.message);
+                // Show user-friendly error
+                const videoInfo = document.getElementById('videoInfo');
+                if (videoInfo) {
+                    videoInfo.innerHTML = `<p style="color: red;">Error loading video. Please try refreshing the page.</p>`;
+                }
             }
+        };
+        
+        videoPlayer.addEventListener('error', errorHandler, { once: true });
+        
+        // Add loadstart listener
+        videoPlayer.addEventListener('loadstart', () => {
+            console.log('Video load started for other user');
         }, { once: true });
         
         // Try to show controls immediately
         setTimeout(() => {
             if (videoPlayer.readyState >= 1) {
                 // Video already has metadata
+                console.log('Video readyState is:', videoPlayer.readyState);
                 showControlsOnLoad();
             }
-        }, 200);
+        }, 300);
         
-        // Also listen for metadata load
+        // Listen for metadata load
         videoPlayer.addEventListener('loadedmetadata', () => {
             console.log('Video metadata loaded for other user');
             showControlsOnLoad();
@@ -812,13 +906,26 @@ function loadVideoFromServer(videoData) {
             updatePlayPauseButton();
         }, { once: true });
         
+        // Listen for loadeddata
+        videoPlayer.addEventListener('loadeddata', () => {
+            console.log('Video data loaded for other user');
+        }, { once: true });
+        
         // Fallback: check again after a delay to ensure controls are visible
         setTimeout(() => {
             if (customControls && customControls.style.display !== 'flex' && currentVideo) {
+                console.log('Fallback: showing controls');
                 customControls.style.display = 'flex';
                 updatePlayPauseButton();
             }
-        }, 1000);
+            
+            // Double-check video is loading
+            if (videoPlayer.readyState === 0 && !videoPlayer.src) {
+                console.warn('Video not loading, retrying...');
+                videoPlayer.src = videoObject.url;
+                videoPlayer.load();
+            }
+        }, 1500);
     }
     
     // Update library
@@ -1221,19 +1328,33 @@ function updatePlayPauseButton() {
 
 // Share video to room
 function shareVideoToRoom(videoObject) {
-    if (!currentRoom || !socket || !isConnected) return;
+    if (!currentRoom || !socket || !isConnected) {
+        console.warn('Cannot share video to room - not connected or no room');
+        return;
+    }
+    
+    // Make sure we have the filename (required for server video streaming)
+    if (!videoObject.filename && !videoObject.fromServer) {
+        console.error('Cannot share video - missing filename. Video object:', videoObject);
+        alert('Video upload may have failed. Please try uploading again.');
+        return;
+    }
+    
+    const videoData = {
+        id: videoObject.id,
+        name: videoObject.name,
+        size: videoObject.size,
+        type: videoObject.type,
+        filename: videoObject.filename || videoObject.id // Ensure filename is sent
+    };
+    
+    console.log('Sharing video to room:', currentRoom, 'Video data:', videoData);
     
     // Send video info via WebSocket
     socket.emit('video-loaded', {
         roomCode: currentRoom,
         userId: userId,
-        video: {
-            id: videoObject.id,
-            name: videoObject.name,
-            size: videoObject.size,
-            type: videoObject.type,
-            filename: videoObject.filename || videoObject.id
-        }
+        video: videoData
     });
     
     // Update room status

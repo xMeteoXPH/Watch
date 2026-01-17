@@ -156,6 +156,10 @@ main {
     max-height: 70vh;
     display: block;
     outline: none;
+    /* Mobile optimizations */
+    -webkit-playsinline: true;
+    playsinline: true;
+    object-fit: contain;
 }
 
 .custom-controls {
