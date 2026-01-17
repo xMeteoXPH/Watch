@@ -173,6 +173,8 @@ function loadVideo(videoObject, syncToRoom = true) {
     const videoInfo = document.getElementById('videoInfo');
     const customControls = document.getElementById('customControls');
 
+    if (!videoPlayer || !videoSource) return;
+
     videoSource.src = videoObject.url;
     videoPlayer.load();
 
@@ -182,14 +184,24 @@ function loadVideo(videoObject, syncToRoom = true) {
 
     currentVideo = videoObject;
 
-    // Show custom controls when video loads
-    videoPlayer.addEventListener('loadedmetadata', function showControls() {
+    // Show custom controls when video metadata is loaded
+    const showControls = () => {
         if (customControls) {
             customControls.style.display = 'flex';
         }
         updatePlayPauseButton();
-        videoPlayer.removeEventListener('loadedmetadata', showControls);
-    }, { once: true });
+    };
+
+    // Remove any existing listeners to avoid duplicates
+    videoPlayer.removeEventListener('loadedmetadata', showControls);
+    
+    // Add listener for when metadata loads
+    videoPlayer.addEventListener('loadedmetadata', showControls, { once: true });
+    
+    // If video already has metadata, show controls immediately
+    if (videoPlayer.readyState >= 1) {
+        setTimeout(showControls, 100);
+    }
 
     // If in a room and syncToRoom is true, share video with room
     if (currentRoom && syncToRoom) {
@@ -711,29 +723,63 @@ function loadVideoFromServer(videoData) {
     // Check if we already have this video
     const existingVideo = uploadedVideos.find(v => v.id === videoData.id);
     
+    let videoObject;
+    
     if (existingVideo) {
-        loadVideo(existingVideo, false);
-        return;
+        videoObject = existingVideo;
+    } else {
+        // Create video object with server URL
+        videoObject = {
+            id: videoData.id,
+            name: videoData.name,
+            size: videoData.size || 'Unknown',
+            type: videoData.type || 'video/mp4',
+            url: `${SERVER_URL}/api/video/${videoData.filename || videoData.id}`,
+            filename: videoData.filename || videoData.id,
+            uploadDate: new Date().toLocaleDateString(),
+            fromServer: true
+        };
+        
+        // Add to uploaded videos
+        uploadedVideos.push(videoObject);
+        saveVideosToStorage();
     }
     
-    // Create video object with server URL
-    const videoObject = {
-        id: videoData.id,
-        name: videoData.name,
-        size: videoData.size || 'Unknown',
-        type: videoData.type || 'video/mp4',
-        url: `${SERVER_URL}/api/video/${videoData.filename || videoData.id}`,
-        filename: videoData.filename || videoData.id,
-        uploadDate: new Date().toLocaleDateString(),
-        fromServer: true
-    };
-    
-    // Add to uploaded videos
-    uploadedVideos.push(videoObject);
-    saveVideosToStorage();
-    
-    // Load in player
+    // Load in player - this will show the video and controls
     loadVideo(videoObject, false);
+    
+    // Ensure custom controls are shown for other users
+    const videoPlayer = document.getElementById('videoPlayer');
+    const customControls = document.getElementById('customControls');
+    
+    if (videoPlayer && customControls) {
+        // Show controls when video metadata is loaded
+        const showControlsOnLoad = () => {
+            if (customControls) {
+                customControls.style.display = 'flex';
+            }
+            updatePlayPauseButton();
+        };
+        
+        // Try to show controls immediately
+        setTimeout(() => {
+            if (videoPlayer.readyState >= 1) {
+                // Video already has metadata
+                showControlsOnLoad();
+            }
+        }, 200);
+        
+        // Also listen for metadata load
+        videoPlayer.addEventListener('loadedmetadata', showControlsOnLoad, { once: true });
+        
+        // Fallback: check again after a delay to ensure controls are visible
+        setTimeout(() => {
+            if (customControls && customControls.style.display !== 'flex' && currentVideo) {
+                customControls.style.display = 'flex';
+                updatePlayPauseButton();
+            }
+        }, 1000);
+    }
     
     // Update library
     updateMoviesLibrary();
