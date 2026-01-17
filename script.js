@@ -162,8 +162,16 @@ async function handleFileUpload(file) {
         // Display file info
         displayFileInfo(videoObject);
 
-        // Load the video in player (this will also share to room if in one)
-        loadVideo(videoObject);
+        // Load the video in player immediately for uploader
+        // Don't sync to room yet - we'll do that after video loads
+        loadVideo(videoObject, false);
+        
+        // Wait a bit to ensure video starts loading, then share to room
+        setTimeout(() => {
+            if (currentRoom) {
+                shareVideoToRoom(videoObject);
+            }
+        }, 500);
 
         // Update movies library
         updateMoviesLibrary();
@@ -273,22 +281,35 @@ function loadVideo(videoObject, syncToRoom = true) {
 
     // Show custom controls when video metadata is loaded
     const showControls = () => {
-        if (customControls) {
+        if (customControls && currentVideo) {
             customControls.style.display = 'flex';
+            updatePlayPauseButton();
         }
-        updatePlayPauseButton();
     };
 
     // Remove any existing listeners to avoid duplicates
     videoPlayer.removeEventListener('loadedmetadata', showControls);
+    videoPlayer.removeEventListener('canplay', showControls);
+    videoPlayer.removeEventListener('loadeddata', showControls);
     
-    // Add listener for when metadata loads
+    // Add multiple listeners for better mobile compatibility
     videoPlayer.addEventListener('loadedmetadata', showControls, { once: true });
+    videoPlayer.addEventListener('canplay', showControls, { once: true });
+    videoPlayer.addEventListener('loadeddata', showControls, { once: true });
     
     // If video already has metadata, show controls immediately
     if (videoPlayer.readyState >= 1) {
         setTimeout(showControls, 100);
     }
+    
+    // Fallback for mobile - show controls after a delay
+    setTimeout(() => {
+        if (customControls && currentVideo && customControls.style.display !== 'flex') {
+            console.log('Fallback: Force showing controls');
+            customControls.style.display = 'flex';
+            updatePlayPauseButton();
+        }
+    }, 1000);
 
     // If in a room and syncToRoom is true, share video with room
     if (currentRoom && syncToRoom) {

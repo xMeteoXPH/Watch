@@ -157,8 +157,6 @@ main {
     display: block;
     outline: none;
     /* Mobile optimizations */
-    -webkit-playsinline: true;
-    playsinline: true;
     object-fit: contain;
 }
 
@@ -953,6 +951,20 @@ footer {
 
     #videoPlayer {
         max-height: 50vh;
+    }
+    
+    .custom-controls {
+        bottom: 50px;
+        padding: 0.3rem 0.6rem;
+        gap: 0.4rem;
+        max-width: 95%;
+    }
+    
+    .control-btn {
+        padding: 0.5rem 0.8rem;
+        font-size: 0.75rem;
+        min-width: 55px;
+        touch-action: manipulation;
     }
 
     .room-header {
