@@ -176,6 +176,13 @@ function loadVideo(videoObject, syncToRoom = true) {
     if (!videoPlayer || !videoSource) return;
 
     videoSource.src = videoObject.url;
+    // Set the correct MIME type for the video source
+    if (videoObject.type) {
+        videoSource.type = videoObject.type;
+    } else {
+        // Default to mp4 if type not specified
+        videoSource.type = 'video/mp4';
+    }
     videoPlayer.load();
 
     videoInfo.innerHTML = `
@@ -720,6 +727,8 @@ function leaveRoom() {
 
 // Load video from server (when someone else uploads)
 function loadVideoFromServer(videoData) {
+    console.log('Loading video from server:', videoData);
+    
     // Check if we already have this video
     const existingVideo = uploadedVideos.find(v => v.id === videoData.id);
     
@@ -727,14 +736,21 @@ function loadVideoFromServer(videoData) {
     
     if (existingVideo) {
         videoObject = existingVideo;
+        console.log('Using existing video:', videoObject);
     } else {
         // Create video object with server URL
+        // Include the MIME type as a query parameter so server knows the content type
+        const videoMimeType = videoData.type || 'video/mp4';
+        const videoUrl = `${SERVER_URL}/api/video/${videoData.filename || videoData.id}?type=${encodeURIComponent(videoMimeType)}`;
+        console.log('Creating new video object with URL:', videoUrl);
+        console.log('Video MIME type:', videoMimeType);
+        
         videoObject = {
             id: videoData.id,
             name: videoData.name,
             size: videoData.size || 'Unknown',
-            type: videoData.type || 'video/mp4',
-            url: `${SERVER_URL}/api/video/${videoData.filename || videoData.id}`,
+            type: videoMimeType,
+            url: videoUrl,
             filename: videoData.filename || videoData.id,
             uploadDate: new Date().toLocaleDateString(),
             fromServer: true
@@ -761,6 +777,18 @@ function loadVideoFromServer(videoData) {
             updatePlayPauseButton();
         };
         
+        // Add error handler to see if video fails to load
+        videoPlayer.addEventListener('error', (e) => {
+            console.error('Video load error:', e);
+            console.error('Video src:', videoPlayer.src);
+            console.error('Video readyState:', videoPlayer.readyState);
+            const error = videoPlayer.error;
+            if (error) {
+                console.error('Video error code:', error.code);
+                console.error('Video error message:', error.message);
+            }
+        }, { once: true });
+        
         // Try to show controls immediately
         setTimeout(() => {
             if (videoPlayer.readyState >= 1) {
@@ -770,7 +798,19 @@ function loadVideoFromServer(videoData) {
         }, 200);
         
         // Also listen for metadata load
-        videoPlayer.addEventListener('loadedmetadata', showControlsOnLoad, { once: true });
+        videoPlayer.addEventListener('loadedmetadata', () => {
+            console.log('Video metadata loaded for other user');
+            showControlsOnLoad();
+        }, { once: true });
+        
+        // Listen for when video can start playing
+        videoPlayer.addEventListener('canplay', () => {
+            console.log('Video can play for other user');
+            if (customControls) {
+                customControls.style.display = 'flex';
+            }
+            updatePlayPauseButton();
+        }, { once: true });
         
         // Fallback: check again after a delay to ensure controls are visible
         setTimeout(() => {

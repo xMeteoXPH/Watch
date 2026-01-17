@@ -121,12 +121,35 @@ app.get('/api/video/:filename', (req, res) => {
   const filePath = path.join(uploadsDir, filename);
 
   if (!fs.existsSync(filePath)) {
+    console.error('Video file not found:', filePath);
     return res.status(404).json({ error: 'Video not found' });
   }
 
   const stat = fs.statSync(filePath);
   const fileSize = stat.size;
   const range = req.headers.range;
+
+  // Try to determine content type from query parameter (mimetype) if provided
+  let contentType = req.query.type || 'video/mp4'; // default
+  
+  // If no type in query, try to determine from file extension (though files are stored as UUIDs)
+  if (contentType === 'video/mp4') {
+    const ext = path.extname(filename).toLowerCase();
+    if (ext === '.mkv') {
+      contentType = 'video/x-matroska';
+    } else if (ext === '.webm') {
+      contentType = 'video/webm';
+    } else if (ext === '.avi') {
+      contentType = 'video/x-msvideo';
+    } else if (ext === '.mov') {
+      contentType = 'video/quicktime';
+    }
+  }
+
+  // Set CORS headers for video streaming
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+  res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges');
 
   if (range) {
     // Handle range requests for video streaming
@@ -139,14 +162,15 @@ app.get('/api/video/:filename', (req, res) => {
       'Content-Range': `bytes ${start}-${end}/${fileSize}`,
       'Accept-Ranges': 'bytes',
       'Content-Length': chunksize,
-      'Content-Type': 'video/mp4',
+      'Content-Type': contentType,
     };
     res.writeHead(206, head);
     file.pipe(res);
   } else {
     const head = {
       'Content-Length': fileSize,
-      'Content-Type': 'video/mp4',
+      'Content-Type': contentType,
+      'Accept-Ranges': 'bytes',
     };
     res.writeHead(200, head);
     fs.createReadStream(filePath).pipe(res);
