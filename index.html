@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Movie Theater - Latest Films</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <header>
+        <nav>
+            <div class="logo">
+                <h1>🎬 MovieHub</h1>
+            </div>
+            <ul class="nav-links">
+                <li><a href="#home">Home</a></li>
+                <li><a href="#movies">Library</a></li>
+            </ul>
+            <div class="user-info" id="userInfo" style="display: none;">
+                <span id="userNickname">Guest</span>
+                <button class="nickname-btn" onclick="showNicknameModal()">✏️</button>
+            </div>
+        </nav>
+    </header>
+
+    <main>
+        <section id="home" class="room-section">
+            <div class="room-container">
+                <h2 class="section-title">Movie Marathon Room</h2>
+                
+                <div class="room-actions" id="roomActions">
+                    <div class="room-create">
+                        <h3>Create a New Room</h3>
+                        <p>Start your own movie marathon session</p>
+                        <button class="room-btn create-btn" onclick="createRoom()">🎬 Create Room</button>
+                    </div>
+                    
+                    <div class="room-divider">OR</div>
+                    
+                    <div class="room-join">
+                        <h3>Join Existing Room</h3>
+                        <p>Enter a room code to join friends</p>
+                        <div class="join-input-group">
+                            <input type="text" id="roomCodeInput" placeholder="Enter room code" maxlength="6">
+                            <button class="room-btn join-btn" onclick="joinRoom()">Join Room</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="room-active" id="roomActive" style="display: none;">
+                    <div class="room-header">
+                        <div class="room-info">
+                            <h3>Room: <span id="roomCodeDisplay"></span></h3>
+                            <div class="room-stats">
+                                <span class="user-count">👥 <span id="userCount">1</span> user(s) online</span>
+                            </div>
+                        </div>
+                        <div class="room-share">
+                            <button class="share-btn" onclick="shareRoomLink()">🔗 Share Link</button>
+                            <button class="leave-btn" onclick="leaveRoom()">Leave Room</button>
+                        </div>
+                    </div>
+
+                    <div class="watch-section">
+                        <div class="video-player-container">
+                            <h2 class="section-title">Movie Player</h2>
+                            <div class="room-status" id="roomStatus" style="display: none;">
+                                <p>🎬 Watching in room: <strong id="roomStatusCode"></strong> with <strong id="roomStatusUsers">1</strong> user(s)</p>
+                                <p class="sync-indicator" id="syncIndicator" style="display: none;">🔄 Video playback is synchronized</p>
+                            </div>
+                            <div class="player-wrapper">
+                                <video id="videoPlayer" controls>
+                                    <source id="videoSource" src="" type="video/mp4">
+                                    Your browser does not support the video tag.
+                                </video>
+                                <div class="subtitle-overlay" id="subtitleOverlay">
+                                    <div class="subtitle-text" id="subtitleText"></div>
+                                </div>
+                                <div class="video-info" id="videoInfo">
+                                    <p>No video loaded. Please upload a video file to get started.</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="upload-section">
+                            <h3 class="upload-title">Upload Your Movie</h3>
+                            <div class="upload-box" id="uploadBox">
+                                <input type="file" id="fileInput" accept="video/mp4,video/mkv,video/*" style="display: none;" onchange="handleFileSelect(event)">
+                                <label for="fileInput" class="upload-label">
+                                    <span class="upload-icon">📁</span>
+                                    <span class="upload-text">Click to upload or drag and drop</span>
+                                    <span class="upload-hint">MP4, MKV or other video formats</span>
+                                </label>
+                            </div>
+                            <div class="file-info" id="fileInfo"></div>
+                            
+                            <div class="subtitle-upload-section">
+                                <h3 class="upload-title">Upload Subtitles (Optional)</h3>
+                                <div class="upload-box subtitle-upload-box" id="subtitleUploadBox">
+                                    <input type="file" id="subtitleInput" accept=".srt,.vtt,.txt" style="display: none;" onchange="handleSubtitleSelect(event)">
+                                    <label for="subtitleInput" class="upload-label">
+                                        <span class="upload-icon">📝</span>
+                                        <span class="upload-text">Click to upload subtitle file</span>
+                                        <span class="upload-hint">SRT, VTT or TXT formats</span>
+                                    </label>
+                                </div>
+                                <div class="subtitle-controls" id="subtitleControls" style="display: none;">
+                                    <span id="subtitleFileName"></span>
+                                    <button class="remove-subtitle-btn" onclick="removeSubtitle()">Remove</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="chat-container">
+                        <div class="chat-header">
+                            <h4>💬 Chat</h4>
+                            <span class="chat-user-count" id="chatUserCount">1 online</span>
+                        </div>
+                        <div class="chat-messages" id="chatMessages">
+                            <!-- Messages will appear here -->
+                        </div>
+                        <div class="chat-input-container">
+                            <input type="text" id="chatInput" placeholder="Type a message..." onkeypress="handleChatKeyPress(event)">
+                            <button class="send-btn" onclick="sendMessage()">Send</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="movies" class="movies-section">
+            <h2 class="section-title">Your Movies Library</h2>
+            <div class="movies-container" id="moviesContainer">
+                <!-- Uploaded movies will be loaded here -->
+            </div>
+        </section>
+
+        <section id="about" class="about-section">
+            <h2 class="section-title">About Us</h2>
+            <p>MovieHub is your one-stop destination for discovering and exploring the best movies. We bring you the latest releases, classics, and hidden gems from around the world.</p>
+        </section>
+
+    </main>
+
+    <!-- Nickname Modal -->
+    <div class="modal" id="nicknameModal" style="display: none;">
+        <div class="modal-content">
+            <h3>Set Your Nickname</h3>
+            <input type="text" id="nicknameInput" placeholder="Enter your nickname" maxlength="20">
+            <div class="modal-actions">
+                <button class="modal-btn" onclick="saveNickname()">Save</button>
+                <button class="modal-btn cancel-btn" onclick="closeNicknameModal()">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Share Modal -->
+    <div class="modal" id="shareModal" style="display: none;">
+        <div class="modal-content">
+            <h3>Share Room Link</h3>
+            <p>Copy this link and share it with your friends:</p>
+            <div class="share-link-container">
+                <input type="text" id="shareLinkInput" readonly>
+                <button class="copy-btn" onclick="copyShareLink()">📋 Copy</button>
+            </div>
+            <div class="modal-actions">
+                <button class="modal-btn cancel-btn" onclick="closeShareModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <footer>
+        <p>&copy; 2024 MovieHub. All rights reserved.</p>
+    </footer>
+
+    <!-- Socket.io Client Library -->
+    <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
+
