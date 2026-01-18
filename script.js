@@ -664,10 +664,14 @@ function connectToServer() {
 
     // Room state received when joining
     socket.on('room-state', (data) => {
+        console.log('Room state received:', data);
         roomUsers = data.users || [];
         chatMessages = data.messages || [];
         
-        updateUserCount();
+        // Update user count with actual count from server
+        const actualCount = roomUsers.length;
+        console.log('Room state - updating user count:', actualCount);
+        updateUserCount(actualCount);
         updateChatDisplay();
         
         // If there's a video in the room, load it
@@ -712,20 +716,50 @@ function connectToServer() {
 
     // User joined
     socket.on('user-joined', (data) => {
-        roomUsers = data.users || [];
-        updateUserCount();
-        addSystemMessage(`${data.user.nickname} joined the room`);
+        console.log('User joined event:', data);
+        // Update room users list - try to get from data.users if available, otherwise update manually
+        if (data.users && Array.isArray(data.users)) {
+            roomUsers = data.users;
+        } else if (data.user) {
+            // Add new user if not already in list
+            if (!roomUsers.find(u => u.id === data.user.id)) {
+                roomUsers.push(data.user);
+            }
+        }
+        // Use count from server if available
+        if (data.userCount !== undefined) {
+            console.log('Updating user count from user-joined:', data.userCount);
+            updateUserCount(data.userCount);
+        } else {
+            updateUserCount();
+        }
+        if (data.user) {
+            addSystemMessage(`${data.user.nickname} joined the room`);
+        }
     });
 
     // User left
     socket.on('user-left', (data) => {
+        console.log('User left event:', data);
         roomUsers = roomUsers.filter(u => u.id !== data.userId);
-        updateUserCount();
+        // Use count from server if available
+        if (data.userCount !== undefined) {
+            console.log('Updating user count from user-left:', data.userCount);
+            updateUserCount(data.userCount);
+        } else {
+            updateUserCount();
+        }
     });
 
     // User count update
     socket.on('user-count-update', (data) => {
-        updateUserCount();
+        console.log('User count update event:', data);
+        // Use count from server
+        if (data.count !== undefined) {
+            updateUserCount(data.count);
+        } else {
+            updateUserCount();
+        }
     });
 
     // Chat message
@@ -916,9 +950,8 @@ function showRoomInterface() {
         fileInput.setAttribute('data-setup', 'true');
     }
     
-    if (videoPlayer && !videoPlayer.hasAttribute('data-setup')) {
+    if (videoPlayer && !videoPlayer.hasAttribute('data-sync-setup')) {
         setupVideoSync();
-        videoPlayer.setAttribute('data-setup', 'true');
     }
     
     // Load room data
@@ -1157,13 +1190,30 @@ function loadVideoFromServer(videoData) {
 }
 
 // Update user count display
-function updateUserCount() {
-    const userCount = roomUsers.length;
-    document.getElementById('userCount').textContent = userCount;
-    document.getElementById('chatUserCount').textContent = userCount + ' online';
+function updateUserCount(overrideCount = null) {
+    // Use override count if provided (from server), otherwise use roomUsers array length
+    const userCount = overrideCount !== null ? overrideCount : roomUsers.length;
+    console.log('Updating user count display:', userCount, '(override:', overrideCount, 'array length:', roomUsers.length, ')');
     
-    if (currentRoom) {
-        document.getElementById('roomStatusUsers').textContent = userCount;
+    const userCountEl = document.getElementById('userCount');
+    const chatUserCountEl = document.getElementById('chatUserCount');
+    const roomStatusUsersEl = document.getElementById('roomStatusUsers');
+    
+    if (userCountEl) {
+        userCountEl.textContent = userCount;
+    }
+    if (chatUserCountEl) {
+        chatUserCountEl.textContent = userCount + ' online';
+    }
+    
+    if (currentRoom && roomStatusUsersEl) {
+        roomStatusUsersEl.textContent = userCount;
+    }
+    
+    // Also update roomUsers array length if it's inconsistent (for safety)
+    if (overrideCount !== null && roomUsers.length !== overrideCount) {
+        console.log('Fixing roomUsers array length mismatch. Was:', roomUsers.length, 'Should be:', overrideCount);
+        // Don't modify array, just log the mismatch for debugging
     }
 }
 
@@ -1426,14 +1476,40 @@ window.addEventListener('click', function(event) {
 
 // ============ VIDEO SYNC MANAGEMENT ============
 
-// Setup video sync event listeners
+// Store event handlers so we can remove them
+let videoSyncHandlers = {
+    play: null,
+    pause: null,
+    seeked: null,
+    timeupdate: null,
+    loadedmetadata: null,
+    playButton: null,
+    pauseButton: null
+};
+
+// Setup video sync event listeners (only once)
 function setupVideoSync() {
     const videoPlayer = document.getElementById('videoPlayer');
     
     if (!videoPlayer) return;
     
+    // Check if already set up to avoid duplicate listeners
+    if (videoPlayer.hasAttribute('data-sync-setup')) {
+        console.log('Video sync already set up, skipping...');
+        return;
+    }
+    
+    // Remove any existing listeners first (just in case)
+    if (videoSyncHandlers.play) videoPlayer.removeEventListener('play', videoSyncHandlers.play);
+    if (videoSyncHandlers.pause) videoPlayer.removeEventListener('pause', videoSyncHandlers.pause);
+    if (videoSyncHandlers.seeked) videoPlayer.removeEventListener('seeked', videoSyncHandlers.seeked);
+    if (videoSyncHandlers.timeupdate) videoPlayer.removeEventListener('timeupdate', videoSyncHandlers.timeupdate);
+    if (videoSyncHandlers.loadedmetadata) videoPlayer.removeEventListener('loadedmetadata', videoSyncHandlers.loadedmetadata);
+    if (videoSyncHandlers.playButton) videoPlayer.removeEventListener('play', videoSyncHandlers.playButton);
+    if (videoSyncHandlers.pauseButton) videoPlayer.removeEventListener('pause', videoSyncHandlers.pauseButton);
+    
     // Play event - use a small delay to ensure state is accurate
-    videoPlayer.addEventListener('play', function() {
+    videoSyncHandlers.play = function() {
         if (currentRoom && !isSyncing) {
             // Small delay to get accurate currentTime after play starts
             setTimeout(() => {
@@ -1442,18 +1518,20 @@ function setupVideoSync() {
                 }
             }, 50);
         }
-    });
+    };
+    videoPlayer.addEventListener('play', videoSyncHandlers.play);
     
     // Pause event - sync immediately for better responsiveness
-    videoPlayer.addEventListener('pause', function() {
+    videoSyncHandlers.pause = function() {
         if (currentRoom && !isSyncing) {
             // For pause, we can sync immediately since paused state is instant
             updateVideoStateInRoom('pause');
         }
-    });
+    };
+    videoPlayer.addEventListener('pause', videoSyncHandlers.pause);
     
     // Seeking event (user scrubs timeline) - use seeked instead of seeking for more accurate time
-    videoPlayer.addEventListener('seeked', function() {
+    videoSyncHandlers.seeked = function() {
         if (currentRoom && !isSyncing) {
             // Use seeked event which fires after seeking is complete
             setTimeout(() => {
@@ -1462,10 +1540,11 @@ function setupVideoSync() {
                 }
             }, 100);
         }
-    });
+    };
+    videoPlayer.addEventListener('seeked', videoSyncHandlers.seeked);
     
     // Time update - update periodically for sync and subtitles
-    videoPlayer.addEventListener('timeupdate', function() {
+    videoSyncHandlers.timeupdate = function() {
         // Update subtitles on every time update
         updateSubtitles(videoPlayer.currentTime);
         
@@ -1476,10 +1555,11 @@ function setupVideoSync() {
                 updateVideoStateInRoom('timeupdate', videoPlayer.currentTime);
             }
         }
-    });
+    };
+    videoPlayer.addEventListener('timeupdate', videoSyncHandlers.timeupdate);
     
     // Video loaded - check if we need to sync
-    videoPlayer.addEventListener('loadedmetadata', function() {
+    videoSyncHandlers.loadedmetadata = function() {
         if (currentRoom) {
             checkForVideoSync();
         }
@@ -1489,16 +1569,23 @@ function setupVideoSync() {
             customControls.style.display = 'flex';
         }
         updatePlayPauseButton();
-    });
+    };
+    videoPlayer.addEventListener('loadedmetadata', videoSyncHandlers.loadedmetadata);
     
     // Update play/pause button icon
-    videoPlayer.addEventListener('play', function() {
+    videoSyncHandlers.playButton = function() {
         updatePlayPauseButton();
-    });
+    };
+    videoPlayer.addEventListener('play', videoSyncHandlers.playButton);
     
-    videoPlayer.addEventListener('pause', function() {
+    videoSyncHandlers.pauseButton = function() {
         updatePlayPauseButton();
-    });
+    };
+    videoPlayer.addEventListener('pause', videoSyncHandlers.pauseButton);
+    
+    // Mark as set up
+    videoPlayer.setAttribute('data-sync-setup', 'true');
+    console.log('Video sync event listeners set up');
 }
 
 // ============ CUSTOM VIDEO CONTROLS ============
