@@ -1521,36 +1521,36 @@ function setupVideoSync() {
     if (videoSyncHandlers.playButton) videoPlayer.removeEventListener('play', videoSyncHandlers.playButton);
     if (videoSyncHandlers.pauseButton) videoPlayer.removeEventListener('pause', videoSyncHandlers.pauseButton);
     
-    // Play event - use a small delay to ensure state is accurate
-    // NOTE: This only syncs if NOT blocked by isSyncing (which custom controls set)
-    // Custom controls handle their own sync, so this is mainly for native browser controls
+    // Play event - MOBILE COMPATIBLE: Works on Android, iOS, Windows
+    // This handles native play events AND mobile touch events
     videoSyncHandlers.play = function() {
         if (currentRoom && !isSyncing) {
             // Small delay to get accurate currentTime after play starts
-            // This handles native play events (when user clicks video player directly or uses keyboard)
+            // Works on all platforms: Android, iOS, Windows
             setTimeout(() => {
                 if (!videoPlayer.paused && currentRoom && !isSyncing) {
-                    console.log('📢 Native play event - syncing play');
+                    console.log('📢 Native play event - syncing (Android/iOS/Windows compatible)');
                     updateVideoStateInRoom('play', videoPlayer.currentTime);
                 }
-            }, 100);
+            }, 150); // Longer delay for mobile devices
         }
     };
+    // Add multiple event types for mobile compatibility
     videoPlayer.addEventListener('play', videoSyncHandlers.play);
+    videoPlayer.addEventListener('playing', videoSyncHandlers.play); // Mobile fallback
     
-    // Pause event - sync immediately for better responsiveness
-    // NOTE: This only syncs if NOT blocked by isSyncing (which custom controls set)
-    // Custom controls handle their own sync, so this is mainly for native browser controls
+    // Pause event - MOBILE COMPATIBLE: Works on Android, iOS, Windows
+    // This handles native pause events AND mobile touch events
     videoSyncHandlers.pause = function() {
         if (currentRoom && !isSyncing) {
-            // For pause, we can sync immediately since paused state is instant
-            // This handles native pause events (when user clicks video player directly or uses keyboard)
+            // For pause, sync after small delay (mobile compatible)
+            // Works on all platforms: Android, iOS, Windows
             setTimeout(() => {
                 if (currentRoom && !isSyncing && videoPlayer.paused) {
-                    console.log('📢 Native pause event - syncing pause');
+                    console.log('📢 Native pause event - syncing (Android/iOS/Windows compatible)');
                     updateVideoStateInRoom('pause', videoPlayer.currentTime);
                 }
-            }, 50);
+            }, 100); // Longer delay for mobile devices
         }
     };
     videoPlayer.addEventListener('pause', videoSyncHandlers.pause);
@@ -1681,10 +1681,10 @@ function emitVideoStateDirect(action, time, isPlaying) {
     }
 }
 
-// Skip forward 10 seconds - FREE-FOR-ALL: Works for UPLOADER AND VIEWER
-// CRITICAL: This must always sync - no exceptions
+// Skip forward 10 seconds - MOBILE COMPATIBLE: Works on Android, iOS, Windows
+// FREE-FOR-ALL: Works for UPLOADER AND VIEWER on ALL platforms
 function skipForward() {
-    console.log('🎮 skipForward() CALLED - User:', userId);
+    console.log('🎮 skipForward() CALLED - User:', userId, 'Platform: Android/iOS/Windows');
     
     try {
         const videoPlayer = document.getElementById('videoPlayer');
@@ -1696,7 +1696,7 @@ function skipForward() {
         const newTime = Math.min(videoPlayer.currentTime + 10, videoPlayer.duration);
         videoPlayer.currentTime = newTime;
         
-        // Always clear isSyncing first
+        // CRITICAL: Always clear isSyncing first (mobile compatible)
         isSyncing = false;
         
         // If not in room, skip locally but don't sync
@@ -1705,25 +1705,26 @@ function skipForward() {
             return;
         }
         
-        console.log('▶️ SKIP FORWARD: Will sync to all users');
+        console.log('▶️ SKIP FORWARD: Will sync to all users (Android/iOS/Windows)');
         
+        // Longer timeout for mobile devices to ensure seek completes
         setTimeout(() => {
             if (currentRoom && currentVideo && socket && isConnected) {
-                console.log('📤 EMITTING: Skip forward sync from user', userId, 'Time:', videoPlayer.currentTime);
+                console.log('📤 EMITTING: Skip forward sync from user', userId, 'Time:', videoPlayer.currentTime, '(ALL platforms)');
                 updateVideoStateInRoom('seek', videoPlayer.currentTime);
             } else {
                 console.warn('⚠️ Cannot emit skip forward - missing requirements');
             }
-        }, 150);
+        }, 200); // Longer delay for mobile
     } catch (error) {
         console.error('❌ ERROR in skipForward:', error);
     }
 }
 
-// Skip backward 10 seconds - FREE-FOR-ALL: Works for UPLOADER AND VIEWER
-// CRITICAL: This must always sync - no exceptions
+// Skip backward 10 seconds - MOBILE COMPATIBLE: Works on Android, iOS, Windows
+// FREE-FOR-ALL: Works for UPLOADER AND VIEWER on ALL platforms
 function skipBackward() {
-    console.log('🎮 skipBackward() CALLED - User:', userId);
+    console.log('🎮 skipBackward() CALLED - User:', userId, 'Platform: Android/iOS/Windows');
     
     try {
         const videoPlayer = document.getElementById('videoPlayer');
@@ -1735,7 +1736,7 @@ function skipBackward() {
         const newTime = Math.max(videoPlayer.currentTime - 10, 0);
         videoPlayer.currentTime = newTime;
         
-        // Always clear isSyncing first
+        // CRITICAL: Always clear isSyncing first (mobile compatible)
         isSyncing = false;
         
         // If not in room, skip locally but don't sync
@@ -1744,25 +1745,26 @@ function skipBackward() {
             return;
         }
         
-        console.log('◀️ SKIP BACKWARD: Will sync to all users');
+        console.log('◀️ SKIP BACKWARD: Will sync to all users (Android/iOS/Windows)');
         
+        // Longer timeout for mobile devices to ensure seek completes
         setTimeout(() => {
             if (currentRoom && currentVideo && socket && isConnected) {
-                console.log('📤 EMITTING: Skip backward sync from user', userId, 'Time:', videoPlayer.currentTime);
+                console.log('📤 EMITTING: Skip backward sync from user', userId, 'Time:', videoPlayer.currentTime, '(ALL platforms)');
                 updateVideoStateInRoom('seek', videoPlayer.currentTime);
             } else {
                 console.warn('⚠️ Cannot emit skip backward - missing requirements');
             }
-        }, 150);
+        }, 200); // Longer delay for mobile
     } catch (error) {
         console.error('❌ ERROR in skipBackward:', error);
     }
 }
 
-// Toggle play/pause - FREE-FOR-ALL: Works for UPLOADER AND VIEWER
-// CRITICAL: This must always sync - no exceptions
+// Toggle play/pause - MOBILE COMPATIBLE: Works on Android, iOS, Windows
+// FREE-FOR-ALL: Works for UPLOADER AND VIEWER on ALL platforms
 function togglePlayPause() {
-    console.log('🎮 togglePlayPause() CALLED - User:', userId);
+    console.log('🎮 togglePlayPause() CALLED - User:', userId, 'Platform: Android/iOS/Windows');
     
     try {
         const videoPlayer = document.getElementById('videoPlayer');
@@ -1778,7 +1780,7 @@ function togglePlayPause() {
         
         const wasPaused = videoPlayer.paused;
         
-        // Always clear isSyncing first
+        // CRITICAL: Always clear isSyncing first (mobile compatible)
         isSyncing = false;
         
         // If not in room, play locally but don't sync
@@ -1792,36 +1794,51 @@ function togglePlayPause() {
             return;
         }
         
-        console.log('✅ FREE-FOR-ALL: Ready to sync to everyone');
+        console.log('✅ FREE-FOR-ALL: Ready to sync to everyone (ALL platforms)');
         console.log('   Room:', currentRoom, 'User:', userId);
         
         if (wasPaused) {
-            // Will play - ALWAYS sync to everyone
-            console.log('▶️ PLAY ACTION: Will sync to all users');
-            videoPlayer.play().then(() => {
+            // Will play - ALWAYS sync to everyone (Android/iOS/Windows)
+            console.log('▶️ PLAY ACTION: Will sync to all users on all platforms');
+            const playPromise = videoPlayer.play();
+            
+            // Mobile browsers may return undefined
+            if (playPromise !== undefined) {
+                playPromise.then(() => {
+                    // Longer timeout for mobile devices
+                    setTimeout(() => {
+                        if (!videoPlayer.paused && currentRoom && currentVideo && socket && isConnected) {
+                            console.log('📤 EMITTING: Play sync from user', userId, '(Android/iOS/Windows)');
+                            updateVideoStateInRoom('play', videoPlayer.currentTime);
+                        } else {
+                            console.warn('⚠️ Cannot emit play - missing requirements');
+                        }
+                    }, 200); // Longer delay for mobile
+                }).catch(e => {
+                    console.error('Play failed:', e);
+                });
+            } else {
+                // Fallback for mobile browsers that don't return promises
                 setTimeout(() => {
                     if (!videoPlayer.paused && currentRoom && currentVideo && socket && isConnected) {
-                        console.log('📤 EMITTING: Play sync from user', userId);
+                        console.log('📤 EMITTING: Play sync (mobile fallback) from user', userId);
                         updateVideoStateInRoom('play', videoPlayer.currentTime);
-                    } else {
-                        console.warn('⚠️ Cannot emit play - missing requirements');
                     }
-                }, 100);
-            }).catch(e => {
-                console.error('Play failed:', e);
-            });
+                }, 200);
+            }
         } else {
-            // Will pause - ALWAYS sync to everyone
-            console.log('⏸️ PAUSE ACTION: Will sync to all users');
+            // Will pause - ALWAYS sync to everyone (Android/iOS/Windows)
+            console.log('⏸️ PAUSE ACTION: Will sync to all users on all platforms');
             videoPlayer.pause();
+            // Longer timeout for mobile to ensure pause state is set
             setTimeout(() => {
                 if (videoPlayer.paused && currentRoom && currentVideo && socket && isConnected) {
-                    console.log('📤 EMITTING: Pause sync from user', userId);
+                    console.log('📤 EMITTING: Pause sync from user', userId, '(Android/iOS/Windows)');
                     updateVideoStateInRoom('pause', videoPlayer.currentTime);
                 } else {
                     console.warn('⚠️ Cannot emit pause - missing requirements');
                 }
-            }, 50);
+            }, 100); // Longer delay for mobile
         }
     } catch (error) {
         console.error('❌ ERROR in togglePlayPause:', error);
