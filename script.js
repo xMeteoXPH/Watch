@@ -782,16 +782,17 @@ function connectToServer() {
     socket.on('video-state-update', (data) => {
         // Server sends videoState directly, not wrapped
         const videoState = data.videoState || data;
-        console.log('Received video-state-update event:', data);
+        console.log('📥 Received video-state-update event:', data);
         console.log('Extracted videoState:', videoState);
         console.log('From user:', videoState.lastUpdatedBy, 'my userId:', userId);
         console.log('Action:', videoState.action, 'CurrentTime:', videoState.currentTime, 'IsPlaying:', videoState.isPlaying);
         
         if (videoState.lastUpdatedBy !== userId) {
-            console.log('Applying video state from another user');
+            console.log('✅ Applying video state from another user');
+            // Always try to apply, even if we're syncing (the apply function will queue if needed)
             applyVideoState(videoState);
         } else {
-            console.log('Ignoring own video state update');
+            console.log('⚠️ Ignoring own video state update (this should not happen with custom controls)');
         }
     });
 }
@@ -1611,15 +1612,17 @@ function skipForward() {
     const newTime = Math.min(videoPlayer.currentTime + 10, videoPlayer.duration);
     
     // Set isSyncing to prevent native seeking event from also syncing
+    const previousIsSyncing = isSyncing;
     isSyncing = true;
     
     // Change the time
     videoPlayer.currentTime = newTime;
     
-    // Sync after seek completes
+    // Sync after seek completes - use longer delay to ensure seek is complete
     setTimeout(() => {
         const actualTime = videoPlayer.currentTime;
-        console.log('🎮 Custom control: Skipping forward to', actualTime);
+        const actualIsPlaying = !videoPlayer.paused;
+        console.log('🎮 Custom control: Skipping forward to', actualTime, 'isPlaying:', actualIsPlaying);
         
         // Force update - bypass isSyncing check
         const now = Date.now();
@@ -1627,7 +1630,7 @@ function skipForward() {
             videoId: currentVideo.id,
             currentTime: actualTime,
             action: 'seek',
-            isPlaying: wasPlaying,
+            isPlaying: actualIsPlaying || wasPlaying, // Use current state or preserved state
             lastUpdatedBy: userId,
             timestamp: now
         };
@@ -1635,16 +1638,20 @@ function skipForward() {
         lastVideoState = videoState;
         lastStateUpdateTime = now;
         
+        // Send update
         socket.emit('video-state-update', {
             roomCode: currentRoom,
             videoState: videoState
         });
         
+        console.log('✅ Skip forward sync sent');
+        
         // Reset isSyncing after delay
         setTimeout(() => {
-            isSyncing = false;
-        }, 300);
-    }, 100);
+            isSyncing = previousIsSyncing; // Restore previous state or false
+            console.log('isSyncing reset after skip forward');
+        }, 400);
+    }, 150);
 }
 
 // Skip backward 10 seconds
@@ -1668,15 +1675,17 @@ function skipBackward() {
     const newTime = Math.max(videoPlayer.currentTime - 10, 0);
     
     // Set isSyncing to prevent native seeking event from also syncing
+    const previousIsSyncing = isSyncing;
     isSyncing = true;
     
     // Change the time
     videoPlayer.currentTime = newTime;
     
-    // Sync after seek completes
+    // Sync after seek completes - use longer delay to ensure seek is complete
     setTimeout(() => {
         const actualTime = videoPlayer.currentTime;
-        console.log('🎮 Custom control: Skipping backward to', actualTime);
+        const actualIsPlaying = !videoPlayer.paused;
+        console.log('🎮 Custom control: Skipping backward to', actualTime, 'isPlaying:', actualIsPlaying);
         
         // Force update - bypass isSyncing check
         const now = Date.now();
@@ -1684,7 +1693,7 @@ function skipBackward() {
             videoId: currentVideo.id,
             currentTime: actualTime,
             action: 'seek',
-            isPlaying: wasPlaying,
+            isPlaying: actualIsPlaying || wasPlaying, // Use current state or preserved state
             lastUpdatedBy: userId,
             timestamp: now
         };
@@ -1692,16 +1701,20 @@ function skipBackward() {
         lastVideoState = videoState;
         lastStateUpdateTime = now;
         
+        // Send update
         socket.emit('video-state-update', {
             roomCode: currentRoom,
             videoState: videoState
         });
         
+        console.log('✅ Skip backward sync sent');
+        
         // Reset isSyncing after delay
         setTimeout(() => {
-            isSyncing = false;
-        }, 300);
-    }, 100);
+            isSyncing = previousIsSyncing; // Restore previous state or false
+            console.log('isSyncing reset after skip backward');
+        }, 400);
+    }, 150);
 }
 
 // Toggle play/pause
@@ -1728,6 +1741,7 @@ function togglePlayPause() {
     const currentTime = videoPlayer.currentTime;
     
     // Set isSyncing to prevent native events from also syncing
+    const previousIsSyncing = isSyncing;
     isSyncing = true;
     
     if (wasPaused) {
@@ -1740,14 +1754,16 @@ function togglePlayPause() {
                     // Sync immediately after play starts
                     setTimeout(() => {
                         const actualTime = videoPlayer.currentTime;
-                        console.log('🎮 Sending play sync:', actualTime);
-                        // Force update - bypass isSyncing check in updateVideoStateInRoom
+                        const actualIsPlaying = !videoPlayer.paused;
+                        console.log('🎮 Sending play sync:', actualTime, 'isPlaying:', actualIsPlaying);
+                        
+                        // Force update - bypass isSyncing check
                         const now = Date.now();
                         const videoState = {
                             videoId: currentVideo.id,
                             currentTime: actualTime,
                             action: 'play',
-                            isPlaying: true,
+                            isPlaying: actualIsPlaying,
                             lastUpdatedBy: userId,
                             timestamp: now
                         };
@@ -1760,25 +1776,29 @@ function togglePlayPause() {
                             videoState: videoState
                         });
                         
-                        // Reset isSyncing after a delay to let native events pass
+                        console.log('✅ Play sync sent');
+                        
+                        // Reset isSyncing after a delay
                         setTimeout(() => {
-                            isSyncing = false;
-                        }, 300);
+                            isSyncing = previousIsSyncing;
+                            console.log('isSyncing reset after play');
+                        }, 400);
                     }, 100);
                 })
                 .catch(e => {
                     console.error('Play failed:', e);
-                    isSyncing = false;
+                    isSyncing = previousIsSyncing;
                 });
         } else {
             setTimeout(() => {
                 const actualTime = videoPlayer.currentTime;
+                const actualIsPlaying = !videoPlayer.paused;
                 const now = Date.now();
                 const videoState = {
                     videoId: currentVideo.id,
                     currentTime: actualTime,
                     action: 'play',
-                    isPlaying: true,
+                    isPlaying: actualIsPlaying,
                     lastUpdatedBy: userId,
                     timestamp: now
                 };
@@ -1791,9 +1811,11 @@ function togglePlayPause() {
                     videoState: videoState
                 });
                 
+                console.log('✅ Play sync sent (fallback)');
+                
                 setTimeout(() => {
-                    isSyncing = false;
-                }, 300);
+                    isSyncing = previousIsSyncing;
+                }, 400);
             }, 100);
         }
     } else {
@@ -1804,14 +1826,16 @@ function togglePlayPause() {
         // Sync immediately
         setTimeout(() => {
             const actualTime = videoPlayer.currentTime;
-            console.log('🎮 Sending pause sync:', actualTime);
+            const actualIsPlaying = !videoPlayer.paused;
+            console.log('🎮 Sending pause sync:', actualTime, 'isPlaying:', actualIsPlaying);
+            
             // Force update - bypass isSyncing check
             const now = Date.now();
             const videoState = {
                 videoId: currentVideo.id,
                 currentTime: actualTime,
                 action: 'pause',
-                isPlaying: false,
+                isPlaying: actualIsPlaying,
                 lastUpdatedBy: userId,
                 timestamp: now
             };
@@ -1824,10 +1848,13 @@ function togglePlayPause() {
                 videoState: videoState
             });
             
+            console.log('✅ Pause sync sent');
+            
             // Reset isSyncing after a delay
             setTimeout(() => {
-                isSyncing = false;
-            }, 300);
+                isSyncing = previousIsSyncing;
+                console.log('isSyncing reset after pause');
+            }, 400);
         }, 50);
     }
 }
@@ -2010,17 +2037,32 @@ function applyVideoState(videoState) {
         return;
     }
     
-    // Ignore stale updates (older than what we've already applied)
+    // Ignore stale updates (older than what we've already applied) - but allow same timestamp or newer
     if (videoState.timestamp && videoState.timestamp < lastReceivedStateTimestamp) {
         console.log('Ignoring stale state update:', videoState.timestamp, 'vs', lastReceivedStateTimestamp);
         return;
     }
-    lastReceivedStateTimestamp = videoState.timestamp || Date.now();
+    lastReceivedStateTimestamp = Math.max(lastReceivedStateTimestamp, videoState.timestamp || Date.now());
     
+    // If we're currently syncing, queue this update but process it after a short delay
+    // This ensures all updates eventually get applied
     if (isSyncing) {
-        console.log('Already syncing, queuing update');
-        // Queue the update if we're syncing
+        console.log('Already syncing, queuing update. Action:', videoState.action, 'Timestamp:', videoState.timestamp);
+        // Queue the update if we're syncing, but also set a timeout to process it
         pendingStateUpdate = videoState;
+        
+        // Process pending update after a delay, even if isSyncing is still true
+        setTimeout(() => {
+            if (pendingStateUpdate && pendingStateUpdate === videoState) {
+                console.log('Processing queued update after delay. Action:', videoState.action);
+                pendingStateUpdate = null;
+                // Force apply even if still syncing
+                const wasSyncing = isSyncing;
+                isSyncing = false;
+                applyVideoState(videoState);
+                isSyncing = wasSyncing;
+            }
+        }, 500);
         return;
     }
     
@@ -2133,18 +2175,27 @@ function finishSync() {
     // Update room status
     updateRoomStatus();
     
-    // Process pending update if any
+    // Process pending update if any - prioritize this over resetting isSyncing
     if (pendingStateUpdate) {
         const pending = pendingStateUpdate;
         pendingStateUpdate = null;
+        console.log('Processing pending update after sync finished. Action:', pending.action);
         setTimeout(() => {
+            // Apply the pending update even if isSyncing is still true
+            const wasSyncing = isSyncing;
+            isSyncing = false;
             applyVideoState(pending);
-        }, 100);
+            // Keep isSyncing false after applying pending update
+            setTimeout(() => {
+                isSyncing = false;
+            }, 100);
+        }, 50);
     } else {
         // Reset sync flag after a delay
         setTimeout(() => {
             isSyncing = false;
-        }, 200);
+            console.log('Sync finished, isSyncing reset to false');
+        }, 100);
     }
 }
 
