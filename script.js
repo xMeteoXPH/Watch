@@ -858,6 +858,13 @@ function connectToServer() {
     // ==========================
     socket.on('video-control', (data) => {
         const state = data?.state || data;
+        
+        // CRITICAL: Double-check we're not applying our own state (extra safety)
+        if (state && state.lastUpdatedBy === userId) {
+            console.log('⚠️ Ignoring own video-control state (we sent this)');
+            return;
+        }
+        
         applyVideoControlStateV2(state);
         tryApplyPendingStateV2();
     });
@@ -1657,6 +1664,12 @@ function applyVideoControlStateV2(state) {
     if (!syncV2.enabled || !state) return;
     if (typeof state.version === 'number' && state.version <= syncV2.version) return;
 
+    // CRITICAL: Ignore our own state updates (by userId)
+    // The server should exclude sender, but this is an extra safety check
+    if (state.lastUpdatedBy === userId) {
+        return; // We sent this, don't apply it back to ourselves
+    }
+
     // Update version first to prevent re-entrancy loops
     if (typeof state.version === 'number') syncV2.version = state.version;
 
@@ -1672,6 +1685,21 @@ function applyVideoControlStateV2(state) {
     const videoPlayer = document.getElementById('videoPlayer');
     if (!videoPlayer) return;
 
+    const shouldPlay = !!state.isPlaying;
+    const isCurrentlyPlaying = !videoPlayer.paused;
+    
+    // CRITICAL: Skip if already in desired state (prevents pause-after-play bug on mobile)
+    // Mobile browsers can trigger unwanted side effects if you call play() when already playing
+    if (shouldPlay === isCurrentlyPlaying && state.action !== 'seek') {
+        // Already in correct state, just update time if needed (for seek we still want to apply)
+        const desiredTime = typeof state.currentTime === 'number' ? state.currentTime : videoPlayer.currentTime;
+        const timeDiff = Math.abs(videoPlayer.currentTime - desiredTime);
+        if (timeDiff > 0.35) {
+            videoPlayer.currentTime = desiredTime;
+        }
+        return; // Don't change play/pause state if already correct
+    }
+
     syncV2.applying = true;
 
     try {
@@ -1680,8 +1708,6 @@ function applyVideoControlStateV2(state) {
         if (timeDiff > 0.35) {
             videoPlayer.currentTime = desiredTime;
         }
-
-        const shouldPlay = !!state.isPlaying;
 
         // Release apply lock when the media actually reaches the target state,
         // not on a fixed short timer (mobile Safari can be slow to fire events).
@@ -1699,9 +1725,10 @@ function applyVideoControlStateV2(state) {
         // Fallback: always release after 1500ms in case events don't fire
         setTimeout(release, 1500);
 
-        if (!shouldPlay) {
+        // Only change play/pause if different from current state
+        if (!shouldPlay && isCurrentlyPlaying) {
             videoPlayer.pause();
-        } else {
+        } else if (shouldPlay && !isCurrentlyPlaying) {
             const p = videoPlayer.play();
             if (p && typeof p.catch === 'function') {
                 p.catch(() => {
@@ -1709,6 +1736,9 @@ function applyVideoControlStateV2(state) {
                     // We still release via timeout.
                 });
             }
+        } else {
+            // Already in correct state - release immediately
+            release();
         }
     } finally {
         // Do not force-release here; release is handled by events/timeout above.
