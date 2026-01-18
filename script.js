@@ -1510,10 +1510,12 @@ function setupVideoSync() {
     if (videoSyncHandlers.pauseButton) videoPlayer.removeEventListener('pause', videoSyncHandlers.pauseButton);
     
     // Play event - use a small delay to ensure state is accurate
+    // NOTE: This only syncs if NOT blocked by isSyncing (which custom controls set)
+    // Custom controls handle their own sync, so this is mainly for native browser controls
     videoSyncHandlers.play = function() {
         if (currentRoom && !isSyncing) {
             // Small delay to get accurate currentTime after play starts
-            // This handles both custom controls and native play events
+            // This handles native play events (when user clicks video player directly or uses keyboard)
             setTimeout(() => {
                 if (!videoPlayer.paused && currentRoom && !isSyncing) {
                     console.log('📢 Native play event - syncing play');
@@ -1525,10 +1527,12 @@ function setupVideoSync() {
     videoPlayer.addEventListener('play', videoSyncHandlers.play);
     
     // Pause event - sync immediately for better responsiveness
+    // NOTE: This only syncs if NOT blocked by isSyncing (which custom controls set)
+    // Custom controls handle their own sync, so this is mainly for native browser controls
     videoSyncHandlers.pause = function() {
         if (currentRoom && !isSyncing) {
             // For pause, we can sync immediately since paused state is instant
-            // This handles both custom controls and native pause events
+            // This handles native pause events (when user clicks video player directly or uses keyboard)
             setTimeout(() => {
                 if (currentRoom && !isSyncing && videoPlayer.paused) {
                     console.log('📢 Native pause event - syncing pause');
@@ -1540,11 +1544,14 @@ function setupVideoSync() {
     videoPlayer.addEventListener('pause', videoSyncHandlers.pause);
     
     // Seeking event (user scrubs timeline) - use seeked instead of seeking for more accurate time
+    // NOTE: This only syncs if NOT blocked by isSyncing (which custom controls set)
+    // Custom controls (skip forward/backward) handle their own sync, so this is mainly for timeline scrubbing
     videoSyncHandlers.seeked = function() {
         if (currentRoom && !isSyncing) {
             // Use seeked event which fires after seeking is complete
             setTimeout(() => {
                 if (currentRoom && !isSyncing) {
+                    console.log('📢 Native seeked event - syncing seek');
                     updateVideoStateInRoom('seek', videoPlayer.currentTime);
                 }
             }, 100);
