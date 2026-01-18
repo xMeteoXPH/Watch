@@ -790,33 +790,56 @@ function connectToServer() {
     // Video state update from others
     // FREE-FOR-ALL: Anyone can control and all actions sync to everyone
     socket.on('video-state-update', (data) => {
+        console.log('📥📥📥 RECEIVED VIDEO-STATE-UPDATE EVENT');
+        console.log('   Timestamp:', new Date().toISOString());
+        console.log('   Raw data:', JSON.stringify(data, null, 2));
+        
         // Server sends videoState wrapped in object: { videoState: ... }
         // Also handle direct videoState object for backward compatibility
         const videoState = data.videoState || data;
         
-        console.log('📥 Received video-state-update event (FREE-FOR-ALL sync)');
-        console.log('  Raw data:', data);
-        console.log('  Extracted videoState:', videoState);
-        console.log('  From user:', videoState.lastUpdatedBy, '| My userId:', userId);
-        console.log('  Action:', videoState.action, '| Time:', videoState.currentTime, '| IsPlaying:', videoState.isPlaying);
+        console.log('   Extracted videoState:', JSON.stringify(videoState, null, 2));
+        console.log('   From user:', videoState?.lastUpdatedBy, '| My userId:', userId);
+        console.log('   Action:', videoState?.action, '| Time:', videoState?.currentTime, '| IsPlaying:', videoState?.isPlaying);
         
         if (!videoState || !videoState.lastUpdatedBy) {
-            console.warn('⚠️ Invalid video state update received:', videoState);
+            console.error('❌❌❌ INVALID VIDEO STATE UPDATE:');
+            console.error('   videoState:', videoState);
+            console.error('   lastUpdatedBy:', videoState?.lastUpdatedBy);
             return;
         }
         
         // FREE-FOR-ALL: Apply state from ANY user (except ourselves)
         // This allows uploader to control viewer, and viewer to control uploader
         if (videoState.lastUpdatedBy !== userId) {
-            console.log('✅ Applying video state from another user (FREE-FOR-ALL bidirectional sync)');
+            console.log('✅✅✅ APPLYING STATE FROM ANOTHER USER');
             console.log('   Action:', videoState.action);
             console.log('   From user:', videoState.lastUpdatedBy, '| My userId:', userId);
             console.log('   IsPlaying:', videoState.isPlaying, '| CurrentTime:', videoState.currentTime);
-            console.log('   This update will sync to all clients in the room');
-            // Always try to apply, even if we're syncing (the apply function will queue if needed)
-            applyVideoState(videoState);
+            console.log('   VideoId:', videoState.videoId, '| CurrentVideo:', currentVideo?.id);
+            
+            // FORCE APPLY - bypass all checks
+            try {
+                applyVideoState(videoState);
+                console.log('   ✅ applyVideoState() called successfully');
+            } catch (error) {
+                console.error('   ❌ ERROR in applyVideoState:', error);
+                console.error('   Stack:', error.stack);
+                
+                // Fallback: Direct apply
+                const videoPlayer = document.getElementById('videoPlayer');
+                if (videoPlayer && videoState.action === 'pause') {
+                    console.log('   🔄 FALLBACK: Direct pause');
+                    videoPlayer.pause();
+                    updatePlayPauseButton();
+                } else if (videoPlayer && videoState.action === 'play') {
+                    console.log('   🔄 FALLBACK: Direct play');
+                    videoPlayer.play().catch(e => console.error('Play failed:', e));
+                    updatePlayPauseButton();
+                }
+            }
         } else {
-            console.log('⚠️ Ignoring own video state update (we sent this, others will receive it)');
+            console.log('⚠️ Ignoring own video state update (we sent this)');
             console.log('   Action:', videoState.action, '| My userId:', userId);
         }
     });
@@ -1661,24 +1684,46 @@ function setupVideoSync() {
 
 // Universal button handler that works on ALL platforms (Desktop, Android, iOS, iPad)
 function handleControlButtonClick(action) {
-    console.log('🎮 Control button clicked:', action, 'Platform: All');
+    console.log('🎮🎮🎮 CONTROL BUTTON CLICKED:', action, 'Platform: All');
+    console.log('   Timestamp:', new Date().toISOString());
+    console.log('   UserId:', userId);
+    console.log('   CurrentRoom:', currentRoom);
+    console.log('   Socket exists:', !!socket);
+    console.log('   Socket connected:', socket?.connected);
+    console.log('   isConnected:', isConnected);
+    
+    // VERIFY CONNECTION FIRST
+    if (!socket || !socket.connected || !isConnected) {
+        console.error('❌❌❌ SOCKET NOT CONNECTED - Cannot sync!');
+        console.error('   Attempting to reconnect...');
+        if (socket) {
+            socket.connect();
+        } else {
+            connectToServer();
+        }
+        // Still try to execute locally
+    }
     
     try {
         switch(action) {
             case 'togglePlayPause':
+                console.log('   → Calling togglePlayPause()');
                 togglePlayPause();
                 break;
             case 'skipForward':
+                console.log('   → Calling skipForward()');
                 skipForward();
                 break;
             case 'skipBackward':
+                console.log('   → Calling skipBackward()');
                 skipBackward();
                 break;
             default:
                 console.error('Unknown action:', action);
         }
     } catch (error) {
-        console.error('Error handling control button:', error);
+        console.error('❌ ERROR in handleControlButtonClick:', error);
+        console.error('   Stack:', error.stack);
     }
 }
 
@@ -2042,31 +2087,81 @@ function togglePlayPause() {
             }
         } else {
             // Will pause - ALWAYS sync to everyone (Android/iOS/Windows)
-            console.log('⏸️ PAUSE ACTION: Will sync to all users on all platforms');
-            videoPlayer.pause();
+            console.log('⏸️⏸️⏸️ PAUSE ACTION DETECTED - Will sync to all users');
+            console.log('   User:', userId, 'Room:', currentRoom);
             
-            // CRITICAL: Emit pause IMMEDIATELY - don't wait for timeout
-            // Pause is instant, so we can sync right away
-            if (currentRoom && currentVideo && socket && isConnected) {
-                console.log('📤 EMITTING: Pause sync IMMEDIATELY from user', userId, '(Android/iOS/Windows)');
-                console.log('   Current time:', videoPlayer.currentTime);
-                console.log('   Paused state:', videoPlayer.paused);
-                // Emit immediately - pause is instant
-                updateVideoStateInRoom('pause', videoPlayer.currentTime);
-            } else {
-                console.error('❌ CANNOT EMIT PAUSE - Missing requirements:');
-                console.error('   currentRoom:', !!currentRoom, currentRoom);
-                console.error('   currentVideo:', !!currentVideo, currentVideo);
-                console.error('   socket:', !!socket);
-                console.error('   isConnected:', isConnected);
-                // Still try after delay as fallback
-                setTimeout(() => {
-                    if (videoPlayer.paused && currentRoom && currentVideo && socket && isConnected) {
-                        console.log('📤 EMITTING: Pause sync (fallback) from user', userId);
-                        updateVideoStateInRoom('pause', videoPlayer.currentTime);
-                    }
-                }, 100);
+            // Pause the video FIRST
+            videoPlayer.pause();
+            console.log('   ✅ Video paused locally');
+            
+            // CRITICAL: Force emit pause MULTIPLE ways to ensure it works
+            const pauseTime = videoPlayer.currentTime;
+            console.log('   Current time:', pauseTime);
+            console.log('   Paused state:', videoPlayer.paused);
+            
+            // Method 1: Immediate emit
+            if (currentRoom && currentVideo) {
+                console.log('📤 METHOD 1: Direct emit via updateVideoStateInRoom');
+                updateVideoStateInRoom('pause', pauseTime);
             }
+            
+            // Method 2: Direct socket emit (bypass function)
+            if (socket && (socket.connected || isConnected)) {
+                console.log('📤 METHOD 2: Direct socket.emit (bypass)');
+                const directState = {
+                    videoId: currentVideo.id,
+                    currentTime: pauseTime,
+                    action: 'pause',
+                    isPlaying: false,
+                    lastUpdatedBy: userId,
+                    timestamp: Date.now()
+                };
+                try {
+                    socket.emit('video-state-update', {
+                        roomCode: currentRoom,
+                        videoState: directState
+                    });
+                    console.log('   ✅ Direct emit successful');
+                } catch (e) {
+                    console.error('   ❌ Direct emit failed:', e);
+                }
+            } else {
+                console.error('❌❌❌ SOCKET NOT AVAILABLE FOR PAUSE:');
+                console.error('   socket exists:', !!socket);
+                console.error('   socket.connected:', socket?.connected);
+                console.error('   isConnected:', isConnected);
+            }
+            
+            // Method 3: Retry after short delay
+            setTimeout(() => {
+                if (videoPlayer.paused && currentRoom && currentVideo) {
+                    console.log('📤 METHOD 3: Retry emit after 100ms');
+                    if (socket && (socket.connected || isConnected)) {
+                        updateVideoStateInRoom('pause', videoPlayer.currentTime);
+                    } else {
+                        console.error('   ❌ Still no socket connection');
+                    }
+                }
+            }, 100);
+            
+            // Method 4: Last resort retry
+            setTimeout(() => {
+                if (videoPlayer.paused && currentRoom && currentVideo && socket) {
+                    console.log('📤 METHOD 4: Last resort retry after 500ms');
+                    const finalState = {
+                        videoId: currentVideo.id,
+                        currentTime: videoPlayer.currentTime,
+                        action: 'pause',
+                        isPlaying: false,
+                        lastUpdatedBy: userId,
+                        timestamp: Date.now()
+                    };
+                    socket.emit('video-state-update', {
+                        roomCode: currentRoom,
+                        videoState: finalState
+                    });
+                }
+            }, 500);
         }
     } catch (error) {
         console.error('❌ ERROR in togglePlayPause:', error);
@@ -2209,15 +2304,56 @@ function updateVideoStateInRoom(action, time = null, overrideIsPlaying = null) {
     console.log('  ✓ Socket object:', !!socket);
     
     // CRITICAL: Emit to server - This works for UPLOADER AND VIEWER
+    // Use MULTIPLE methods to ensure it gets through
+    const emitData = {
+        roomCode: currentRoom,
+        videoState: videoState
+    };
+    
+    console.log('🚀 ATTEMPTING TO EMIT - Full emit data:', JSON.stringify(emitData, null, 2));
+    console.log('   Socket connected:', socket?.connected);
+    console.log('   Socket ID:', socket?.id);
+    console.log('   isConnected flag:', isConnected);
+    
     try {
-        socket.emit('video-state-update', {
-            roomCode: currentRoom,
-            videoState: videoState
+        // Method 1: Standard emit
+        socket.emit('video-state-update', emitData);
+        console.log('✅ Method 1: Standard emit() called');
+        
+        // Method 2: Emit with callback to verify
+        socket.emit('video-state-update', emitData, (response) => {
+            if (response) {
+                console.log('✅ Method 2: Server acknowledged:', response);
+            } else {
+                console.warn('⚠️ Method 2: No server acknowledgment');
+            }
         });
-        console.log('✅ FREE-FOR-ALL: Successfully emitted video-state-update from user:', userId);
+        
+        // Method 3: Force emit with timeout (fallback)
+        setTimeout(() => {
+            if (socket && socket.connected) {
+                console.log('🔄 Method 3: Retry emit (fallback)');
+                socket.emit('video-state-update', emitData);
+            }
+        }, 50);
+        
+        console.log('✅ FREE-FOR-ALL: All emit methods attempted from user:', userId);
     } catch (error) {
         console.error('❌ ERROR emitting video-state-update:', error);
+        console.error('  Error stack:', error.stack);
         console.error('  User:', userId, 'Room:', currentRoom, 'Action:', action);
+        
+        // Last resort: Try to reconnect and emit
+        if (!socket || !socket.connected) {
+            console.error('⚠️ Socket not connected, attempting reconnect...');
+            connectToServer();
+            setTimeout(() => {
+                if (socket && socket.connected) {
+                    socket.emit('video-state-update', emitData);
+                    console.log('🔄 Reconnected and re-emitted');
+                }
+            }, 1000);
+        }
     }
 }
 
@@ -2271,16 +2407,25 @@ function syncVideoFromRoom(videoState) {
 
 // Apply video state to player
 function applyVideoState(videoState) {
+    console.log('🎬🎬🎬 applyVideoState() CALLED');
+    console.log('   VideoState:', JSON.stringify(videoState, null, 2));
+    console.log('   My userId:', userId);
+    console.log('   CurrentRoom:', currentRoom);
+    console.log('   CurrentVideo:', currentVideo?.id);
+    
     if (!videoState) {
-        console.warn('applyVideoState called with no videoState');
+        console.error('❌ applyVideoState called with no videoState');
         return;
     }
     
     // Don't sync if we were the one who made the change
     if (videoState.lastUpdatedBy === userId) {
-        console.log('Ignoring own video state update in applyVideoState');
+        console.log('⚠️ Ignoring own video state update in applyVideoState');
+        console.log('   lastUpdatedBy:', videoState.lastUpdatedBy, '=== userId:', userId);
         return;
     }
+    
+    console.log('✅ Not our own update, proceeding to apply...');
     
     // Ignore stale updates (older than what we've already applied) - but allow same timestamp or newer
     if (videoState.timestamp && videoState.timestamp < lastReceivedStateTimestamp) {
@@ -2289,37 +2434,39 @@ function applyVideoState(videoState) {
     }
     lastReceivedStateTimestamp = Math.max(lastReceivedStateTimestamp, videoState.timestamp || Date.now());
     
-    // If we're currently syncing, check if this is a more important action that should override
-    // Play/pause/seek actions are more important than timeupdate and should be processed immediately
-    if (isSyncing) {
-        const isImportantAction = videoState.action === 'play' || videoState.action === 'pause' || videoState.action === 'seek';
+    // CRITICAL: For pause/play actions, ALWAYS apply immediately - ignore isSyncing
+    const isCriticalAction = videoState.action === 'play' || videoState.action === 'pause';
+    
+    if (isCriticalAction) {
+        console.log('🚨🚨🚨 CRITICAL ACTION (play/pause) - FORCING IMMEDIATE PROCESSING');
+        console.log('   Action:', videoState.action, 'from user:', videoState.lastUpdatedBy);
+        console.log('   isSyncing was:', isSyncing);
+        
+        // FORCE clear isSyncing for critical actions
+        isSyncing = false;
+        pendingStateUpdate = null;
+        
+        // Apply immediately - no delays
+        console.log('   → Applying immediately (bypassing isSyncing check)');
+    } else if (isSyncing) {
+        // For non-critical actions, check if we should queue
+        const isImportantAction = videoState.action === 'seek';
         
         if (isImportantAction) {
-            // Important actions (play/pause/seek) MUST override timeupdate sync immediately
-            console.log('🚨 IMPORTANT: Action received while syncing, forcing immediate processing. Action:', videoState.action, 'from user:', videoState.lastUpdatedBy);
-            // Clear any pending timeupdate - user actions have priority
+            console.log('🚨 Important action (seek) received while syncing, forcing immediate processing');
+            isSyncing = false;
             pendingStateUpdate = null;
-            // Force immediate processing by temporarily clearing isSyncing
-            const wasSyncing = isSyncing;
-            isSyncing = false; // Temporarily clear to allow immediate processing
-            
-            // Process immediately (very small delay to let any current operation finish)
             setTimeout(() => {
-                // Re-check that we should still apply (might have changed)
                 if (videoState.lastUpdatedBy !== userId && videoState.lastUpdatedBy) {
-                    console.log('🚨 Applying important action immediately:', videoState.action);
-                    // Call applyVideoState directly but skip the isSyncing check by temporarily clearing it
+                    console.log('🚨 Applying seek action immediately');
                     applyVideoState(videoState);
                 }
-                // Don't restore isSyncing immediately - let applyVideoState manage it
-            }, 30); // Very short delay
+            }, 30);
             return;
         } else {
             // For timeupdate while syncing, queue it (low priority)
             console.log('Already syncing, queuing timeupdate. Timestamp:', videoState.timestamp);
             pendingStateUpdate = videoState;
-            
-            // Process pending update after a delay, even if isSyncing is still true
             setTimeout(() => {
                 if (pendingStateUpdate && pendingStateUpdate === videoState) {
                     console.log('Processing queued timeupdate after delay');
