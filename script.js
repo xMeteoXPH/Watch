@@ -1627,16 +1627,21 @@ function skipForward() {
     const videoPlayer = document.getElementById('videoPlayer');
     if (!videoPlayer || !currentVideo) {
         console.warn('Cannot skip forward: no video player or video');
+        console.warn('  videoPlayer:', !!videoPlayer, 'currentVideo:', !!currentVideo);
         return;
     }
     
     if (!currentRoom || !socket || !isConnected) {
         console.warn('Cannot skip forward: not in room or not connected');
+        console.warn('  currentRoom:', currentRoom, 'socket:', !!socket, 'isConnected:', isConnected);
         // Still allow local skip even if not connected
         const newTime = Math.min(videoPlayer.currentTime + 10, videoPlayer.duration);
         videoPlayer.currentTime = newTime;
         return;
     }
+    
+    // FREE-FOR-ALL: Explicit check that we can sync (uploader OR viewer)
+    console.log('🎮 FREE-FOR-ALL: skipForward() called by user:', userId, 'in room:', currentRoom);
     
     // Capture play/pause state BEFORE changing time
     const wasPlaying = !videoPlayer.paused;
@@ -1669,13 +1674,14 @@ function skipForward() {
         lastVideoState = videoState;
         lastStateUpdateTime = now;
         
-        // Send update
+        // Send update - FREE-FOR-ALL: Works for uploader AND viewer
+        console.log('🚀 FREE-FOR-ALL: Emitting skip forward sync from user:', userId, 'to room:', currentRoom);
         socket.emit('video-state-update', {
             roomCode: currentRoom,
             videoState: videoState
         });
         
-        console.log('✅ Skip forward sync sent by user:', userId);
+        console.log('✅ Skip forward sync sent by user:', userId, '(uploader OR viewer)');
         console.log('   Video state:', JSON.stringify(videoState, null, 2));
         
         // Reset isSyncing after delay
@@ -1691,16 +1697,21 @@ function skipBackward() {
     const videoPlayer = document.getElementById('videoPlayer');
     if (!videoPlayer || !currentVideo) {
         console.warn('Cannot skip backward: no video player or video');
+        console.warn('  videoPlayer:', !!videoPlayer, 'currentVideo:', !!currentVideo);
         return;
     }
     
     if (!currentRoom || !socket || !isConnected) {
         console.warn('Cannot skip backward: not in room or not connected');
+        console.warn('  currentRoom:', currentRoom, 'socket:', !!socket, 'isConnected:', isConnected);
         // Still allow local skip even if not connected
         const newTime = Math.max(videoPlayer.currentTime - 10, 0);
         videoPlayer.currentTime = newTime;
         return;
     }
+    
+    // FREE-FOR-ALL: Explicit check that we can sync (uploader OR viewer)
+    console.log('🎮 FREE-FOR-ALL: skipBackward() called by user:', userId, 'in room:', currentRoom);
     
     // Capture play/pause state BEFORE changing time
     const wasPlaying = !videoPlayer.paused;
@@ -1733,13 +1744,14 @@ function skipBackward() {
         lastVideoState = videoState;
         lastStateUpdateTime = now;
         
-        // Send update
+        // Send update - FREE-FOR-ALL: Works for uploader AND viewer
+        console.log('🚀 FREE-FOR-ALL: Emitting skip backward sync from user:', userId, 'to room:', currentRoom);
         socket.emit('video-state-update', {
             roomCode: currentRoom,
             videoState: videoState
         });
         
-        console.log('✅ Skip backward sync sent by user:', userId);
+        console.log('✅ Skip backward sync sent by user:', userId, '(uploader OR viewer)');
         console.log('   Video state:', JSON.stringify(videoState, null, 2));
         
         // Reset isSyncing after delay
@@ -1755,11 +1767,13 @@ function togglePlayPause() {
     const videoPlayer = document.getElementById('videoPlayer');
     if (!videoPlayer || !currentVideo) {
         console.warn('Cannot toggle play/pause: no video player or video');
+        console.warn('  videoPlayer:', !!videoPlayer, 'currentVideo:', !!currentVideo);
         return;
     }
     
     if (!currentRoom || !socket || !isConnected) {
         console.warn('Cannot toggle play/pause: not in room or not connected');
+        console.warn('  currentRoom:', currentRoom, 'socket:', !!socket, 'isConnected:', isConnected);
         // Still allow local play/pause even if not connected
         if (!videoPlayer.paused) {
             videoPlayer.pause();
@@ -1768,6 +1782,9 @@ function togglePlayPause() {
         }
         return;
     }
+    
+    // FREE-FOR-ALL: Explicit check that we can sync (uploader OR viewer)
+    console.log('🎮 FREE-FOR-ALL: togglePlayPause() called by user:', userId, 'in room:', currentRoom);
     
     // Capture state before change
     const wasPaused = videoPlayer.paused;
@@ -1804,12 +1821,14 @@ function togglePlayPause() {
                         lastVideoState = videoState;
                         lastStateUpdateTime = now;
                         
+                        // Send update - FREE-FOR-ALL: Works for uploader AND viewer
+                        console.log('🚀 FREE-FOR-ALL: Emitting play sync from user:', userId, 'to room:', currentRoom);
                         socket.emit('video-state-update', {
                             roomCode: currentRoom,
                             videoState: videoState
                         });
                         
-                        console.log('✅ Play sync sent by user:', userId);
+                        console.log('✅ Play sync sent by user:', userId, '(uploader OR viewer)');
                         console.log('   Video state:', JSON.stringify(videoState, null, 2));
                         
                         // Reset isSyncing after a delay
@@ -1840,12 +1859,14 @@ function togglePlayPause() {
                 lastVideoState = videoState;
                 lastStateUpdateTime = now;
                 
+                // Send update - FREE-FOR-ALL: Works for uploader AND viewer
+                console.log('🚀 FREE-FOR-ALL: Emitting play sync (fallback) from user:', userId, 'to room:', currentRoom);
                 socket.emit('video-state-update', {
                     roomCode: currentRoom,
                     videoState: videoState
                 });
                 
-                console.log('✅ Play sync sent (fallback)');
+                console.log('✅ Play sync sent (fallback) by user:', userId, '(uploader OR viewer)');
                 
                 setTimeout(() => {
                     isSyncing = previousIsSyncing;
@@ -1877,12 +1898,14 @@ function togglePlayPause() {
             lastVideoState = videoState;
             lastStateUpdateTime = now;
             
+            // Send update - FREE-FOR-ALL: Works for uploader AND viewer
+            console.log('🚀 FREE-FOR-ALL: Emitting pause sync from user:', userId, 'to room:', currentRoom);
             socket.emit('video-state-update', {
                 roomCode: currentRoom,
                 videoState: videoState
             });
             
-            console.log('✅ Pause sync sent by user:', userId);
+            console.log('✅ Pause sync sent by user:', userId, '(uploader OR viewer)');
             console.log('   Video state:', JSON.stringify(videoState, null, 2));
             
             // Reset isSyncing after a delay
