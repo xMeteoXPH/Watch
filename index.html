@@ -19,6 +19,7 @@
             <ul class="nav-links">
                 <li><a href="#home">Home</a></li>
                 <li><a href="#movies">Library</a></li>
+                <li><a href="#admin">Storage</a></li>
             </ul>
             <div class="user-info" id="userInfo" style="display: none;">
                 <span id="userNickname">Guest</span>
@@ -148,6 +149,34 @@
         <section id="about" class="about-section">
             <h2 class="section-title">About Us</h2>
             <p>MovieHub is your one-stop destination for discovering and exploring the best movies. We bring you the latest releases, classics, and hidden gems from around the world.</p>
+        </section>
+
+        <section id="admin" class="room-section">
+            <div class="room-container">
+                <h2 class="section-title">Storage Management</h2>
+                <div style="background: #1a1a1a; padding: 2rem; border-radius: 10px; margin-top: 2rem;">
+                    <p style="color: #b0b0b0; margin-bottom: 1.5rem;">Clean up old uploaded files to free up server space and improve upload speed.</p>
+                    
+                    <div id="storageInfo" style="margin-bottom: 2rem; padding: 1.5rem; background: #2a2a2a; border-radius: 10px;">
+                        <p style="color: #e0e0e0; margin-bottom: 1rem;">Loading storage information...</p>
+                    </div>
+
+                    <div style="display: flex; gap: 1rem; flex-wrap: wrap; justify-content: center;">
+                        <button class="room-btn" onclick="checkStorage()" style="background: linear-gradient(135deg, #5d6e2e 0%, #4a5d23 100%);">
+                            🔍 Refresh Storage Info
+                        </button>
+                        <button class="room-btn" onclick="cleanupOldFiles(7)" style="background: linear-gradient(135deg, #7a8d52 0%, #5d6e2e 100%);">
+                            🧹 Delete Files Older Than 7 Days
+                        </button>
+                        <button class="room-btn" onclick="cleanupOldFiles(30)" style="background: linear-gradient(135deg, #7a8d52 0%, #5d6e2e 100%);">
+                            🧹 Delete Files Older Than 30 Days
+                        </button>
+                        <button class="room-btn" onclick="cleanupAllFiles()" style="background: linear-gradient(135deg, #d32f2f 0%, #b71c1c 100%);">
+                            ⚠️ Delete ALL Files
+                        </button>
+                    </div>
+                </div>
+            </div>
         </section>
 
     </main>

@@ -197,6 +197,14 @@ async function handleFileUpload(file) {
             fromServer: true
         };
 
+        // Check if video with same name already exists (replace it instead of adding duplicate)
+        const existingIndex = uploadedVideos.findIndex(v => v.name === videoObject.name);
+        if (existingIndex !== -1) {
+            // Remove old video entry
+            uploadedVideos.splice(existingIndex, 1);
+            console.log('Replacing existing video:', videoObject.name);
+        }
+        
         // Add to uploaded videos array
         uploadedVideos.push(videoObject);
         
@@ -303,11 +311,10 @@ function displayFileInfo(videoObject) {
 // Load video into player
 function loadVideo(videoObject, syncToRoom = true) {
     const videoPlayer = document.getElementById('videoPlayer');
-    const videoSource = document.getElementById('videoSource');
     const videoInfo = document.getElementById('videoInfo');
     const customControls = document.getElementById('customControls');
 
-    if (!videoPlayer || !videoSource) return;
+    if (!videoPlayer) return;
 
     console.log('Loading video:', videoObject.name, 'URL:', videoObject.url, 'Type:', videoObject.type);
 
@@ -320,6 +327,7 @@ function loadVideo(videoObject, syncToRoom = true) {
     
     // Clear direct src if set
     videoPlayer.removeAttribute('src');
+    videoPlayer.load(); // Load empty state first
     
     // Set playsinline attribute for mobile (already in HTML but ensure it's set)
     videoPlayer.setAttribute('playsinline', 'true');
@@ -328,48 +336,89 @@ function loadVideo(videoObject, syncToRoom = true) {
     
     // Small delay to ensure clearing is complete, then set new source
     setTimeout(() => {
-        // Update existing source element or create new one
-        if (videoSource) {
-            videoSource.src = videoObject.url;
-            videoSource.type = videoObject.type || 'video/mp4';
-        } else {
-            // Create new source element if it doesn't exist
-            const newSource = document.createElement('source');
-            newSource.id = 'videoSource';
-            newSource.src = videoObject.url;
-            newSource.type = videoObject.type || 'video/mp4';
-            videoPlayer.appendChild(newSource);
-        }
+        // Create new source element (always create fresh)
+        const newSource = document.createElement('source');
+        newSource.id = 'videoSource';
+        newSource.src = videoObject.url;
+        newSource.type = videoObject.type || 'video/mp4';
+        videoPlayer.appendChild(newSource);
         
-        // Force reload the video
-        videoPlayer.load();
+        console.log('Setting video source:', videoObject.url);
+        console.log('Video MIME type:', videoObject.type || 'video/mp4');
         
-        console.log('Video load() called. Source src:', videoSource ? videoSource.src : videoPlayer.querySelector('source')?.src, 'Video readyState:', videoPlayer.readyState);
-        
-        // Add error handler for retry
-        const handleLoadError = () => {
-            console.warn('Video load error detected, readyState:', videoPlayer.readyState, 'networkState:', videoPlayer.networkState);
+        // Add comprehensive error handler
+        const handleLoadError = (e) => {
+            const error = videoPlayer.error;
+            console.error('Video load error detected!');
+            console.error('Error event:', e);
+            console.error('Video URL:', videoObject.url);
+            console.error('Video readyState:', videoPlayer.readyState);
+            console.error('Video networkState:', videoPlayer.networkState);
+            if (error) {
+                console.error('Video error code:', error.code);
+                console.error('Video error message:', error.message);
+                
+                // Show error to user
+                if (videoInfo) {
+                    const errorMsg = document.createElement('p');
+                    errorMsg.style.color = '#ff4444';
+                    errorMsg.textContent = `⚠️ Error loading video: ${error.message || 'Unknown error'}. Please try again.`;
+                    videoInfo.appendChild(errorMsg);
+                    setTimeout(() => errorMsg.remove(), 5000);
+                }
+            }
+            
+            // Retry loading if it's a network error
             if (videoPlayer.networkState === 2 || videoPlayer.networkState === 3) {
-                console.log('Retrying video load...');
+                console.log('Retrying video load in 1 second...');
                 setTimeout(() => {
+                    const sources = videoPlayer.querySelectorAll('source');
+                    sources.forEach(s => s.remove());
+                    const retrySource = document.createElement('source');
+                    retrySource.id = 'videoSource';
+                    retrySource.src = videoObject.url;
+                    retrySource.type = videoObject.type || 'video/mp4';
+                    videoPlayer.appendChild(retrySource);
                     videoPlayer.load();
-                }, 500);
+                }, 1000);
             }
         };
         
+        // Add error listener before loading
+        videoPlayer.removeEventListener('error', handleLoadError);
+        videoPlayer.addEventListener('error', handleLoadError, { once: true });
+        
+        // Add success listeners
+        videoPlayer.addEventListener('loadstart', () => {
+            console.log('Video load started');
+        }, { once: true });
+        
+        videoPlayer.addEventListener('loadedmetadata', () => {
+            console.log('Video metadata loaded successfully');
+        }, { once: true });
+        
+        videoPlayer.addEventListener('canplay', () => {
+            console.log('Video can play');
+        }, { once: true });
+        
+        // Force reload the video
+        videoPlayer.load();
+        console.log('Video load() called. Video readyState:', videoPlayer.readyState);
+        
         // Check if video loaded successfully after delays
         setTimeout(() => {
-            if (videoPlayer.readyState === 0) {
-                handleLoadError();
+            if (videoPlayer.readyState === 0 && videoPlayer.networkState !== 0) {
+                console.warn('Video not loaded after 500ms');
             }
         }, 500);
         
         setTimeout(() => {
             if (videoPlayer.readyState === 0 && videoPlayer.networkState !== 0) {
-                handleLoadError();
+                console.warn('Video still not loaded after 2000ms');
+                handleLoadError(null);
             }
-        }, 1500);
-    }, 100);
+        }, 2000);
+    }, 150);
 
     videoInfo.innerHTML = `
         <p><strong>Now Playing:</strong> ${videoObject.name}</p>
@@ -979,11 +1028,17 @@ function loadVideoFromServer(videoData) {
         fromServer: true
     };
     
-    // Check if we already have this video in our array, update it if so
-    const existingIndex = uploadedVideos.findIndex(v => v.id === videoData.id);
+    // Check if we already have this video in our array (by ID or name), update it if so
+    const existingIndexById = uploadedVideos.findIndex(v => v.id === videoData.id);
+    const existingIndexByName = uploadedVideos.findIndex(v => v.name === videoData.name);
+    const existingIndex = existingIndexById !== -1 ? existingIndexById : existingIndexByName;
+    
     if (existingIndex !== -1) {
+        // Update existing video
         uploadedVideos[existingIndex] = videoObject;
+        console.log('Updated existing video:', videoObject.name);
     } else {
+        // Add new video
         uploadedVideos.push(videoObject);
     }
     saveVideosToStorage();
@@ -2054,3 +2109,117 @@ function showVideoSyncNotification(videoName) {
         }
     }, 10000);
 }
+
+// ============ STORAGE MANAGEMENT ============
+
+// Check storage info
+async function checkStorage() {
+    const storageInfo = document.getElementById('storageInfo');
+    if (!storageInfo) return;
+    
+    storageInfo.innerHTML = '<p style="color: #e0e0e0;">Loading storage information...</p>';
+    
+    try {
+        const response = await fetch(`${SERVER_URL}/api/admin/storage`);
+        const data = await response.json();
+        
+        if (data.success) {
+            storageInfo.innerHTML = `
+                <h3 style="color: #7a8d52; margin-bottom: 1rem;">📊 Storage Statistics</h3>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1rem;">
+                    <div style="background: #1f1f1f; padding: 1rem; border-radius: 8px;">
+                        <div style="color: #b0b0b0; font-size: 0.9rem; margin-bottom: 0.5rem;">Total Files</div>
+                        <div style="color: #e0e0e0; font-size: 1.5rem; font-weight: bold;">${data.totalFiles}</div>
+                    </div>
+                    <div style="background: #1f1f1f; padding: 1rem; border-radius: 8px;">
+                        <div style="color: #b0b0b0; font-size: 0.9rem; margin-bottom: 0.5rem;">Total Size</div>
+                        <div style="color: #e0e0e0; font-size: 1.5rem; font-weight: bold;">${data.totalSizeFormatted}</div>
+                    </div>
+                </div>
+                ${data.totalFiles > 0 ? `
+                    <details style="margin-top: 1rem;">
+                        <summary style="color: #7a8d52; cursor: pointer; padding: 0.5rem; background: #1f1f1f; border-radius: 5px;">
+                            View All Files (${data.totalFiles})
+                        </summary>
+                        <div style="margin-top: 1rem; max-height: 300px; overflow-y: auto;">
+                            ${data.files.map(file => `
+                                <div style="padding: 0.8rem; margin-bottom: 0.5rem; background: #1f1f1f; border-radius: 5px; border-left: 3px solid #5d6e2e;">
+                                    <div style="color: #e0e0e0; font-weight: 500; margin-bottom: 0.3rem;">${file.filename}</div>
+                                    <div style="display: flex; justify-content: space-between; color: #b0b0b0; font-size: 0.85rem;">
+                                        <span>${file.sizeFormatted}</span>
+                                        <span>${new Date(file.created).toLocaleDateString()}</span>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </details>
+                ` : '<p style="color: #b0b0b0; margin-top: 1rem;">No files uploaded yet.</p>'}
+            `;
+        } else {
+            storageInfo.innerHTML = `<p style="color: #ff4444;">Error: ${data.error || 'Failed to load storage info'}</p>`;
+        }
+    } catch (error) {
+        storageInfo.innerHTML = `<p style="color: #ff4444;">Error loading storage info: ${error.message}</p>`;
+    }
+}
+
+// Cleanup old files
+async function cleanupOldFiles(days) {
+    if (!confirm(`Are you sure you want to delete all files older than ${days} days? This cannot be undone!`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${SERVER_URL}/api/admin/cleanup?days=${days}`, {
+            method: 'DELETE'
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+            alert(`✅ ${data.message}\n\nDeleted: ${data.deletedCount} file(s)\nFreed up: ${data.deletedSizeFormatted}`);
+            // Refresh storage info
+            checkStorage();
+        } else {
+            alert(`❌ Error: ${data.error || 'Failed to cleanup files'}`);
+        }
+    } catch (error) {
+        alert(`❌ Error: ${error.message}`);
+    }
+}
+
+// Cleanup all files
+async function cleanupAllFiles() {
+    if (!confirm('⚠️ WARNING: This will delete ALL uploaded files!\n\nThis cannot be undone. Are you absolutely sure?')) {
+        return;
+    }
+    
+    // Double confirmation
+    if (!confirm('This is your last chance! Are you 100% sure you want to delete ALL files?')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${SERVER_URL}/api/admin/cleanup-all`, {
+            method: 'DELETE'
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+            alert(`✅ ${data.message}\n\nDeleted: ${data.deletedCount} file(s)\nFreed up: ${data.deletedSizeFormatted}`);
+            // Refresh storage info
+            checkStorage();
+        } else {
+            alert(`❌ Error: ${data.error || 'Failed to delete files'}`);
+        }
+    } catch (error) {
+        alert(`❌ Error: ${error.message}`);
+    }
+}
+
+// Check storage info when page loads (if on admin section)
+document.addEventListener('DOMContentLoaded', function() {
+    // Check if we're on the admin section
+    if (window.location.hash === '#admin') {
+        setTimeout(checkStorage, 500);
+    }
+});

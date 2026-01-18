@@ -48,7 +48,7 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage: storage,
   limits: {
-    fileSize: 2 * 1024 * 1024 * 1024 // 2GB limit
+    fileSize: 3 * 1024 * 1024 * 1024 // 3GB limit
   },
   fileFilter: (req, file, cb) => {
     if (file.mimetype.startsWith('video/')) {
@@ -193,6 +193,119 @@ app.get('/api/room/:roomCode', (req, res) => {
     createdAt: room.createdAt
   });
 });
+
+// Get uploads storage info
+app.get('/api/admin/storage', (req, res) => {
+  try {
+    const files = fs.readdirSync(uploadsDir);
+    let totalSize = 0;
+    const fileList = [];
+
+    files.forEach(file => {
+      const filePath = path.join(uploadsDir, file);
+      const stats = fs.statSync(filePath);
+      totalSize += stats.size;
+      fileList.push({
+        filename: file,
+        size: stats.size,
+        sizeFormatted: formatBytes(stats.size),
+        created: stats.birthtime,
+        modified: stats.mtime
+      });
+    });
+
+    res.json({
+      success: true,
+      totalFiles: files.length,
+      totalSize: totalSize,
+      totalSizeFormatted: formatBytes(totalSize),
+      files: fileList.sort((a, b) => b.created - a.created) // Sort by newest first
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to read storage info', message: error.message });
+  }
+});
+
+// Clean up old files (older than X days, default 7 days)
+app.delete('/api/admin/cleanup', (req, res) => {
+  try {
+    const daysOld = parseInt(req.query.days) || 7; // Default 7 days
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - daysOld);
+
+    const files = fs.readdirSync(uploadsDir);
+    let deletedCount = 0;
+    let deletedSize = 0;
+    const deletedFiles = [];
+
+    files.forEach(file => {
+      const filePath = path.join(uploadsDir, file);
+      const stats = fs.statSync(filePath);
+      
+      // Delete if file is older than cutoff date
+      if (stats.birthtime < cutoffDate) {
+        const fileSize = stats.size;
+        fs.unlinkSync(filePath);
+        deletedCount++;
+        deletedSize += fileSize;
+        deletedFiles.push({
+          filename: file,
+          size: fileSize,
+          sizeFormatted: formatBytes(fileSize),
+          age: Math.floor((Date.now() - stats.birthtime.getTime()) / (1000 * 60 * 60 * 24)) + ' days'
+        });
+      }
+    });
+
+    res.json({
+      success: true,
+      message: `Deleted ${deletedCount} file(s) older than ${daysOld} days`,
+      deletedCount: deletedCount,
+      deletedSize: deletedSize,
+      deletedSizeFormatted: formatBytes(deletedSize),
+      deletedFiles: deletedFiles
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to cleanup files', message: error.message });
+  }
+});
+
+// Delete all uploaded files (USE WITH CAUTION!)
+app.delete('/api/admin/cleanup-all', (req, res) => {
+  try {
+    const files = fs.readdirSync(uploadsDir);
+    let deletedCount = 0;
+    let deletedSize = 0;
+
+    files.forEach(file => {
+      const filePath = path.join(uploadsDir, file);
+      const stats = fs.statSync(filePath);
+      const fileSize = stats.size;
+      fs.unlinkSync(filePath);
+      deletedCount++;
+      deletedSize += fileSize;
+    });
+
+    res.json({
+      success: true,
+      message: `Deleted all ${deletedCount} file(s)`,
+      deletedCount: deletedCount,
+      deletedSize: deletedSize,
+      deletedSizeFormatted: formatBytes(deletedSize)
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to delete files', message: error.message });
+  }
+});
+
+// Helper function to format bytes
+function formatBytes(bytes) {
+  if (bytes === 0) return '0 Bytes';
+  const k = 1024;
+  const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
+}
 
 // Socket.io connection handling
 io.on('connection', (socket) => {
@@ -372,10 +485,45 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
 
+// Cleanup old files on server start (optional - uncomment if you want automatic cleanup)
+// Uncomment the following to automatically delete files older than 30 days on startup
+/*
+setInterval(() => {
+  try {
+    const daysOld = 30; // Delete files older than 30 days
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - daysOld);
+    
+    const files = fs.readdirSync(uploadsDir);
+    let deletedCount = 0;
+    
+    files.forEach(file => {
+      const filePath = path.join(uploadsDir, file);
+      const stats = fs.statSync(filePath);
+      
+      if (stats.birthtime < cutoffDate) {
+        fs.unlinkSync(filePath);
+        deletedCount++;
+      }
+    });
+    
+    if (deletedCount > 0) {
+      console.log(`🧹 Auto-cleanup: Deleted ${deletedCount} old file(s)`);
+    }
+  } catch (error) {
+    console.error('Auto-cleanup error:', error);
+  }
+}, 24 * 60 * 60 * 1000); // Run every 24 hours
+*/
+
 // Start server
 server.listen(PORT, () => {
   console.log(`🎬 MovieHub Server running on port ${PORT}`);
   console.log(`📁 Uploads directory: ${uploadsDir}`);
   console.log(`🌐 Access your webpage at: http://localhost:${PORT}`);
+  console.log(`🧹 Storage management:`);
+  console.log(`   - GET http://localhost:${PORT}/api/admin/storage - View storage info`);
+  console.log(`   - DELETE http://localhost:${PORT}/api/admin/cleanup?days=7 - Delete files older than X days`);
+  console.log(`   - DELETE http://localhost:${PORT}/api/admin/cleanup-all - Delete ALL files (use with caution!)`);
 });
 
