@@ -1634,12 +1634,26 @@ function setupVideoSync() {
         // Update subtitles on every time update
         updateSubtitles(videoPlayer.currentTime);
         
-        // Only sync timeupdate if video is playing and not currently syncing
-        // This is just for time drift correction, not for play/pause state
+        // CRITICAL: STOP timeupdate from syncing when paused - it was overriding pause!
+        // Only sync timeupdate if video is playing AND not paused AND not syncing
         if (currentRoom && !isSyncing && !videoPlayer.paused) {
-            // Only update every 1 second to avoid too many updates
+            // Only update every 2 seconds to reduce frequency (was 1 second)
             const now = Date.now();
-            if (!lastVideoState || now - lastVideoState.timestamp > 1000) {
+            // CRITICAL: Also check that the last action wasn't pause/play to prevent override
+            const lastAction = lastVideoState?.action;
+            const timeSinceLastAction = lastVideoState ? now - lastVideoState.timestamp : Infinity;
+            
+            // Don't sync timeupdate if a pause/play happened recently (within 2 seconds)
+            // This prevents timeupdate from overriding pause/play actions
+            if (lastAction === 'pause' || lastAction === 'play') {
+                if (timeSinceLastAction < 2000) {
+                    // Too soon after pause/play - skip timeupdate to prevent override
+                    return;
+                }
+            }
+            
+            // Only sync if enough time has passed
+            if (!lastVideoState || now - lastVideoState.timestamp > 2000) {
                 // For timeupdate, explicitly pass isPlaying as true since video is playing
                 // This ensures we don't accidentally pause the video on the receiving end
                 updateVideoStateInRoom('timeupdate', videoPlayer.currentTime, true);
@@ -2289,9 +2303,17 @@ function updateVideoStateInRoom(action, time = null, overrideIsPlaying = null) {
         timestamp: now
     };
     
-    // Update local state
+    // CRITICAL: Update local state BEFORE emitting
+    // This ensures timeupdate knows about pause/play and won't override
     lastVideoState = videoState;
     lastStateUpdateTime = now;
+    
+    // CRITICAL: For pause/play actions, immediately stop any pending timeupdate
+    // This prevents timeupdate from overriding pause/play
+    if (action === 'pause' || action === 'play') {
+        console.log('⛔ BLOCKING timeupdate for 2 seconds after', action, 'to prevent override');
+        // The timeupdate handler already checks for recent pause/play actions
+    }
     
     console.log('📤 FREE-FOR-ALL: Emitting video-state-update to server:');
     console.log('  ✓ User:', userId, '(uploader OR viewer)');
@@ -2510,16 +2532,27 @@ function applyVideoState(videoState) {
     const timeDiff = Math.abs(videoPlayer.currentTime - videoState.currentTime);
     
     if (videoState.action === 'timeupdate') {
-        // For timeupdate actions, ONLY sync time, NOT play/pause state
-        // IMPORTANT: If video is paused, don't apply timeupdate - respect the pause state
+        // CRITICAL: timeupdate should NEVER override pause/play state
+        // If video is paused, ALWAYS ignore timeupdate - respect the pause state
         if (videoPlayer.paused) {
-            console.log('Ignoring timeupdate - video is paused, respecting pause state');
+            console.log('⛔ Ignoring timeupdate - video is paused, respecting pause state');
             isSyncing = false;
             return; // Don't sync timeupdate when paused - let user control their pause
         }
         
+        // CRITICAL: Check if a pause/play happened recently (within 3 seconds)
+        // If so, ignore timeupdate to prevent it from overriding pause/play
+        const lastAction = lastVideoState?.action;
+        const timeSinceLastAction = lastVideoState ? Date.now() - (lastVideoState.timestamp || 0) : Infinity;
+        
+        if ((lastAction === 'pause' || lastAction === 'play') && timeSinceLastAction < 3000) {
+            console.log('⛔ Ignoring timeupdate - pause/play action occurred recently (', timeSinceLastAction, 'ms ago)');
+            isSyncing = false;
+            return; // Don't let timeupdate override recent pause/play
+        }
+        
         // Only sync time if video is playing and difference is significant
-        const timeThreshold = 1.0; // Only sync if difference is more than 1 second
+        const timeThreshold = 1.5; // Increased threshold to reduce sync frequency
         if (timeDiff > timeThreshold) {
             console.log(`Syncing timeupdate: ${videoPlayer.currentTime.toFixed(2)} -> ${videoState.currentTime.toFixed(2)} (diff: ${timeDiff.toFixed(2)}s)`);
             videoPlayer.currentTime = videoState.currentTime;
