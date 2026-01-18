@@ -443,11 +443,15 @@ io.on('connection', (socket) => {
         };
 
         // Broadcast to others in room (not sender)
-        // Include timestamp for client-side ordering
-        socket.to(roomCode).emit('video-state-update', room.videoState);
+        // Send in consistent format: { videoState: ... } to match client expectation
+        // Client handles both { videoState: ... } and direct videoState object
+        console.log('📤 Broadcasting video-state-update to room:', roomCode, 'Action:', videoState.action, 'From user:', videoState.lastUpdatedBy);
+        socket.to(roomCode).emit('video-state-update', { videoState: room.videoState });
       } else {
         console.log('Ignoring older state update:', newTimestamp, 'vs', currentTimestamp);
       }
+    } else {
+      console.log('⚠️ Cannot process video-state-update: room or video missing');
     }
   });
 

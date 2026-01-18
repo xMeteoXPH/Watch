@@ -780,19 +780,26 @@ function connectToServer() {
 
     // Video state update from others
     socket.on('video-state-update', (data) => {
-        // Server sends videoState directly, not wrapped
+        // Server sends videoState wrapped in object: { videoState: ... }
+        // Also handle direct videoState object for backward compatibility
         const videoState = data.videoState || data;
-        console.log('📥 Received video-state-update event:', data);
-        console.log('Extracted videoState:', videoState);
-        console.log('From user:', videoState.lastUpdatedBy, 'my userId:', userId);
-        console.log('Action:', videoState.action, 'CurrentTime:', videoState.currentTime, 'IsPlaying:', videoState.isPlaying);
+        console.log('📥 Received video-state-update event');
+        console.log('  Raw data:', data);
+        console.log('  Extracted videoState:', videoState);
+        console.log('  From user:', videoState.lastUpdatedBy, '| My userId:', userId);
+        console.log('  Action:', videoState.action, '| Time:', videoState.currentTime, '| IsPlaying:', videoState.isPlaying);
+        
+        if (!videoState || !videoState.lastUpdatedBy) {
+            console.warn('⚠️ Invalid video state update received:', videoState);
+            return;
+        }
         
         if (videoState.lastUpdatedBy !== userId) {
-            console.log('✅ Applying video state from another user');
+            console.log('✅ Applying video state from another user (bidirectional sync)');
             // Always try to apply, even if we're syncing (the apply function will queue if needed)
             applyVideoState(videoState);
         } else {
-            console.log('⚠️ Ignoring own video state update (this should not happen with custom controls)');
+            console.log('⚠️ Ignoring own video state update (normal for custom controls that emit directly)');
         }
     });
 }
