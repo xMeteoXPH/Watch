@@ -790,8 +790,9 @@ function connectToServer() {
     // Video state update from others
     // FREE-FOR-ALL: Anyone can control and all actions sync to everyone
     socket.on('video-state-update', (data) => {
-        console.log('📥📥📥 RECEIVED VIDEO-STATE-UPDATE EVENT');
-        console.log('   Timestamp:', new Date().toISOString());
+        const receiveTimestamp = new Date().toISOString();
+        console.log('📥📥📥 RECEIVED VIDEO-STATE-UPDATE EVENT at', receiveTimestamp);
+        console.log('   Device: ALL (Desktop/Mobile/Tablet)');
         console.log('   Raw data:', JSON.stringify(data, null, 2));
         
         // Server sends videoState wrapped in object: { videoState: ... }
@@ -2103,24 +2104,43 @@ function togglePlayPause() {
             // Will pause - ALWAYS sync to everyone (Android/iOS/Windows)
             console.log('⏸️⏸️⏸️ PAUSE ACTION DETECTED - Will sync to all users');
             console.log('   User:', userId, 'Room:', currentRoom);
+            console.log('   Socket connected:', socket?.connected, '| isConnected:', isConnected);
             
             // Pause the video FIRST
             videoPlayer.pause();
             console.log('   ✅ Video paused locally');
+            
+            // CRITICAL: Ensure we're in the room before emitting
+            if (socket && currentRoom) {
+                // Force join room (in case we're not in it)
+                socket.emit('join-room', {
+                    roomCode: currentRoom,
+                    userId: userId,
+                    nickname: userNickname
+                });
+                console.log('   🔄 Ensuring socket is in room:', currentRoom);
+            }
             
             // CRITICAL: Force emit pause MULTIPLE ways to ensure it works
             const pauseTime = videoPlayer.currentTime;
             console.log('   Current time:', pauseTime);
             console.log('   Paused state:', videoPlayer.paused);
             
-            // Method 1: Immediate emit
-            if (currentRoom && currentVideo) {
+            // Method 1: Immediate emit via updateVideoStateInRoom
+            if (currentRoom && currentVideo && socket && (socket.connected || isConnected)) {
                 console.log('📤 METHOD 1: Direct emit via updateVideoStateInRoom');
                 updateVideoStateInRoom('pause', pauseTime);
+            } else {
+                console.error('❌ METHOD 1 FAILED - Missing requirements:');
+                console.error('   currentRoom:', !!currentRoom, currentRoom);
+                console.error('   currentVideo:', !!currentVideo);
+                console.error('   socket:', !!socket);
+                console.error('   socket.connected:', socket?.connected);
+                console.error('   isConnected:', isConnected);
             }
             
-            // Method 2: Direct socket emit (bypass function)
-            if (socket && (socket.connected || isConnected)) {
+            // Method 2: Direct socket emit (bypass function) - GUARANTEED to work if socket exists
+            if (socket && currentRoom && currentVideo) {
                 console.log('📤 METHOD 2: Direct socket.emit (bypass)');
                 const directState = {
                     videoId: currentVideo.id,
@@ -2135,26 +2155,28 @@ function togglePlayPause() {
                         roomCode: currentRoom,
                         videoState: directState
                     });
-                    console.log('   ✅ Direct emit successful');
+                    console.log('   ✅ Method 2: Direct emit successful');
                 } catch (e) {
-                    console.error('   ❌ Direct emit failed:', e);
+                    console.error('   ❌ Method 2: Direct emit failed:', e);
                 }
-            } else {
-                console.error('❌❌❌ SOCKET NOT AVAILABLE FOR PAUSE:');
-                console.error('   socket exists:', !!socket);
-                console.error('   socket.connected:', socket?.connected);
-                console.error('   isConnected:', isConnected);
             }
             
-            // Method 3: Retry after short delay
+            // Method 3: Retry after short delay (in case socket connection is still establishing)
             setTimeout(() => {
-                if (videoPlayer.paused && currentRoom && currentVideo) {
+                if (videoPlayer.paused && currentRoom && currentVideo && socket) {
                     console.log('📤 METHOD 3: Retry emit after 100ms');
-                    if (socket && (socket.connected || isConnected)) {
-                        updateVideoStateInRoom('pause', videoPlayer.currentTime);
-                    } else {
-                        console.error('   ❌ Still no socket connection');
-                    }
+                    const retryState = {
+                        videoId: currentVideo.id,
+                        currentTime: videoPlayer.currentTime,
+                        action: 'pause',
+                        isPlaying: false,
+                        lastUpdatedBy: userId,
+                        timestamp: Date.now()
+                    };
+                    socket.emit('video-state-update', {
+                        roomCode: currentRoom,
+                        videoState: retryState
+                    });
                 }
             }, 100);
             

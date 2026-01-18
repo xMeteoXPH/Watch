@@ -429,7 +429,10 @@ io.on('connection', (socket) => {
   // Video state update (play, pause, seek, timeupdate)
   // ALLOW FREE-FOR-ALL: Anyone can control (uploader or viewer)
   socket.on('video-state-update', (data) => {
-    console.log('🔔 SERVER RECEIVED video-state-update event from socket:', socket.id);
+    const timestamp = new Date().toISOString();
+    console.log('🔔🔔🔔 SERVER RECEIVED video-state-update event at', timestamp);
+    console.log('   Socket ID:', socket.id);
+    console.log('   Socket connected:', socket.connected);
     console.log('   Raw data received:', JSON.stringify(data, null, 2));
     
     const { roomCode, videoState } = data;
@@ -485,15 +488,38 @@ io.on('connection', (socket) => {
       const clientsInRoom = io.sockets.adapter.rooms.get(roomCode);
       const clientCount = clientsInRoom ? clientsInRoom.size : 0;
       
+      // Get all socket IDs in the room to verify membership
+      const socketIdsInRoom = clientsInRoom ? Array.from(clientsInRoom) : [];
+      const senderInRoom = socketIdsInRoom.includes(socket.id);
+      
       console.log('📤 SERVER: Broadcasting video-state-update to room:', roomCode);
-      console.log('   Clients in room:', clientCount);
+      console.log('   Total clients in room:', clientCount);
       console.log('   Sender socket ID:', socket.id);
+      console.log('   Sender in room:', senderInRoom);
+      console.log('   All socket IDs in room:', socketIdsInRoom);
+      
+      // CRITICAL: Verify sender is in room first
+      if (!senderInRoom) {
+        console.error('❌❌❌ CRITICAL: Sender socket NOT in room! Joining now...');
+        socket.join(roomCode);
+        // Retry getting room after join
+        const retryClientsInRoom = io.sockets.adapter.rooms.get(roomCode);
+        const retryCount = retryClientsInRoom ? retryClientsInRoom.size : 0;
+        console.log('   After join - Clients in room:', retryCount);
+      }
       
       // CRITICAL: Use socket.to() to broadcast to all in room EXCEPT the sender
       // This ensures the sender doesn't receive their own update
-      socket.to(roomCode).emit('video-state-update', { videoState: room.videoState });
+      const broadcastData = { videoState: room.videoState };
+      console.log('   Broadcasting data:', JSON.stringify(broadcastData, null, 2));
+      
+      // CRITICAL: Broadcast using socket.to() to exclude sender
+      const recipientsBefore = clientCount - 1; // All except sender
+      socket.to(roomCode).emit('video-state-update', broadcastData);
       
       console.log('✅ SERVER: Broadcast complete to room:', roomCode);
+      console.log('   Expected recipients (excluding sender):', recipientsBefore);
+      console.log('   Broadcast method: socket.to() - excludes sender');
     } else {
       console.log('⚠️ SERVER: Ignoring older state update:', newTimestamp, 'vs', currentTimestamp);
     }
