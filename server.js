@@ -72,6 +72,7 @@ function getOrCreateRoom(roomCode) {
       messages: [],
       currentVideo: null,
       videoState: null,
+      videoVersion: 0,
       createdAt: new Date().toISOString()
     });
   }
@@ -405,25 +406,90 @@ io.on('connection', (socket) => {
   });
 
   // Video loaded/shared
-  socket.on('video-loaded', (data) => {
-    const { roomCode, video } = data;
+  socket.on('video-loaded', (data, ack) => {
+    const { roomCode, video, userId } = data || {};
     const room = rooms.get(roomCode);
 
-    if (room) {
-      room.currentVideo = video;
-      room.videoState = {
-        videoId: video.id,
-        currentTime: 0,
-        isPlaying: false,
-        lastUpdatedBy: data.userId,
-        lastUpdatedAt: new Date().toISOString()
-      };
-
-      socket.to(roomCode).emit('video-loaded', {
-        video: video,
-        userId: data.userId
-      });
+    if (!roomCode || !video || !video.id) {
+      if (typeof ack === 'function') ack({ ok: false, error: 'bad_request' });
+      return;
     }
+
+    if (!room) {
+      if (typeof ack === 'function') ack({ ok: false, error: 'room_not_found' });
+      return;
+    }
+
+    room.currentVideo = video;
+    room.videoVersion = 0;
+    room.videoState = {
+      videoId: video.id,
+      currentTime: 0,
+      isPlaying: false,
+      action: 'load',
+      lastUpdatedBy: userId,
+      version: room.videoVersion,
+      updatedAt: new Date().toISOString()
+    };
+
+    // IMPORTANT: broadcast to ALL clients (including sender) so everyone has the same baseline
+    io.to(roomCode).emit('video-loaded', {
+      video,
+      userId,
+      state: room.videoState,
+      protocol: 2
+    });
+
+    if (typeof ack === 'function') ack({ ok: true, version: room.videoVersion });
+  });
+
+  // ==========================
+  // VIDEO CONTROL v2 (cross-platform)
+  // Single source of truth: server assigns a monotonically increasing version.
+  // Clients should apply only if version is newer.
+  // ==========================
+  socket.on('video-control', (data, ack) => {
+    const { roomCode, userId, videoId, action, currentTime, isPlaying } = data || {};
+
+    if (!roomCode || !userId || !videoId || !action) {
+      if (typeof ack === 'function') ack({ ok: false, error: 'bad_request' });
+      return;
+    }
+
+    const room = rooms.get(roomCode);
+    if (!room) {
+      if (typeof ack === 'function') ack({ ok: false, error: 'room_not_found' });
+      return;
+    }
+
+    if (!room.currentVideo || room.currentVideo.id !== videoId) {
+      if (typeof ack === 'function') ack({ ok: false, error: 'no_video_in_room' });
+      return;
+    }
+
+    const time = typeof currentTime === 'number' ? currentTime : (room.videoState?.currentTime || 0);
+    const playing =
+      typeof isPlaying === 'boolean'
+        ? isPlaying
+        : (action === 'play' ? true : (action === 'pause' ? false : (room.videoState?.isPlaying || false)));
+
+    room.videoVersion = (room.videoVersion || 0) + 1;
+    room.videoState = {
+      videoId,
+      currentTime: time,
+      isPlaying: playing,
+      action,
+      lastUpdatedBy: userId,
+      version: room.videoVersion,
+      updatedAt: new Date().toISOString()
+    };
+
+    io.to(roomCode).emit('video-control', {
+      state: room.videoState,
+      protocol: 2
+    });
+
+    if (typeof ack === 'function') ack({ ok: true, version: room.videoVersion });
   });
 
   // Video state update (play, pause, seek, timeupdate)

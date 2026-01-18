@@ -27,6 +27,24 @@ let lastStateUpdateTime = 0; // Track when we last sent a state update
 let pendingStateUpdate = null; // Queue for pending state updates
 let lastReceivedStateTimestamp = 0; // Track most recent received state timestamp
 
+// ==========================
+// SYNC PROTOCOL v2 (cross-platform)
+// - No timeupdate spam
+// - Server assigns monotonically increasing `version`
+// - Clients apply only newer versions
+// ==========================
+const SYNC_PROTOCOL = 2;
+const syncV2 = {
+    enabled: true,
+    version: 0,
+    applying: false,
+    pendingState: null,
+    roomHasVideo: false,
+    lastEmitAt: 0,
+    lastEmitKey: '',
+    lastSeekEmitAt: 0
+};
+
 // Generate unique user ID
 function generateUserId() {
     return 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
@@ -74,7 +92,9 @@ function scrollToPlayer() {
 // Setup drag and drop functionality
 function setupDragAndDrop() {
     const uploadBox = document.getElementById('uploadBox');
-    const fileInput = document.getElementById('fileInput');
+    if (!uploadBox) return;
+    if (uploadBox.hasAttribute('data-dd-setup')) return;
+    uploadBox.setAttribute('data-dd-setup', 'true');
 
     // Drag and drop events
     uploadBox.addEventListener('dragover', function(e) {
@@ -96,9 +116,10 @@ function setupDragAndDrop() {
         }
     });
 
-    // Click to upload
+    // Click to upload (single source of truth: programmatic click)
     uploadBox.addEventListener('click', function() {
-        fileInput.click();
+        const fileInput = document.getElementById('fileInput');
+        if (fileInput) fileInput.click();
     });
 }
 
@@ -698,7 +719,12 @@ function connectToServer() {
                         const applyStateWhenReady = () => {
                             if (videoPlayer.readyState >= 2) { // HAVE_CURRENT_DATA or better
                                 setTimeout(() => {
-                                    applyVideoState(data.videoState);
+                                    if (data.videoState && typeof data.videoState.version === 'number') {
+                                        syncV2.roomHasVideo = !!data.currentVideo;
+                                        applyVideoControlStateV2(data.videoState);
+                                    } else {
+                                        applyVideoState(data.videoState);
+                                    }
                                 }, 300);
                             } else {
                                 // Wait a bit more and try again
@@ -708,10 +734,24 @@ function connectToServer() {
                         
                         // Try immediately if ready, otherwise wait
                         if (videoPlayer.readyState >= 2) {
-                            setTimeout(() => applyVideoState(data.videoState), 500);
+                            setTimeout(() => {
+                                if (data.videoState && typeof data.videoState.version === 'number') {
+                                    syncV2.roomHasVideo = !!data.currentVideo;
+                                    applyVideoControlStateV2(data.videoState);
+                                } else {
+                                    applyVideoState(data.videoState);
+                                }
+                            }, 500);
                         } else {
                             videoPlayer.addEventListener('canplay', () => {
-                                setTimeout(() => applyVideoState(data.videoState), 500);
+                                setTimeout(() => {
+                                    if (data.videoState && typeof data.videoState.version === 'number') {
+                                        syncV2.roomHasVideo = !!data.currentVideo;
+                                        applyVideoControlStateV2(data.videoState);
+                                    } else {
+                                        applyVideoState(data.videoState);
+                                    }
+                                }, 500);
                             }, { once: true });
                             // Fallback timeout
                             setTimeout(applyStateWhenReady, 2000);
@@ -776,19 +816,48 @@ function connectToServer() {
         updateChatDisplay();
     });
 
-    // Video loaded by someone else
+    // Video loaded/shared (protocol v2 capable)
     socket.on('video-loaded', (data) => {
-        if (data.userId !== userId) {
-            console.log('Received video-loaded event:', data.video);
-            // Always load the video, even if we have one (might be different)
+        console.log('📥 Received video-loaded event:', data);
+
+        if (!data || !data.video) return;
+
+        syncV2.roomHasVideo = true;
+
+        const shouldLoad = !currentVideo || currentVideo.id !== data.video.id;
+        if (shouldLoad) {
             loadVideoFromServer(data.video);
+        }
+
+        // Apply baseline state if provided (v2)
+        if (data.state && typeof data.state.version === 'number') {
+            // Wait a moment for the video element to be ready if we just loaded it
+            setTimeout(() => {
+                applyVideoControlStateV2(data.state);
+                tryApplyPendingStateV2();
+            }, 300);
+        }
+
+        // Notify (only for others to avoid spam)
+        if (data.userId && data.userId !== userId) {
             addSystemMessage(`${data.user?.nickname || 'Someone'} loaded video: ${data.video.name}`);
         }
     });
 
-    // Video state update from others
+    // ==========================
+    // VIDEO CONTROL v2
+    // ==========================
+    socket.on('video-control', (data) => {
+        const state = data?.state || data;
+        applyVideoControlStateV2(state);
+        tryApplyPendingStateV2();
+    });
+
+    // Legacy video state update (deprecated)
     // FREE-FOR-ALL: Anyone can control and all actions sync to everyone
     socket.on('video-state-update', (data) => {
+        // If v2 is enabled, ignore legacy updates
+        if (syncV2.enabled) return;
         const receiveTimestamp = new Date().toISOString();
         console.log('📥📥📥 RECEIVED VIDEO-STATE-UPDATE EVENT at', receiveTimestamp);
         console.log('   Device: ALL (Desktop/Mobile/Tablet)');
@@ -996,23 +1065,13 @@ function showRoomInterface() {
     
     if (fileInput && !fileInput.hasAttribute('data-setup')) {
         setupDragAndDrop();
-        
-        // Remove any existing change listeners to prevent duplicates
-        const newInput = fileInput.cloneNode(true);
-        fileInput.parentNode.replaceChild(newInput, fileInput);
-        
-        // Get fresh reference
-        const freshInput = document.getElementById('fileInput');
-        
-        // Add single change event listener
-        freshInput.addEventListener('change', handleFileSelect, { once: false });
-        
-        freshInput.setAttribute('data-setup', 'true');
-        console.log('✅ File input setup complete - single change listener attached');
+        fileInput.addEventListener('change', handleFileSelect);
+        fileInput.setAttribute('data-setup', 'true');
+        console.log('✅ File input setup complete');
     }
     
-    if (videoPlayer && !videoPlayer.hasAttribute('data-sync-setup')) {
-        setupVideoSync();
+    if (videoPlayer && !videoPlayer.hasAttribute('data-sync-v2-setup')) {
+        setupVideoSyncV2();
     }
     
     // Load room data
@@ -1537,6 +1596,107 @@ window.addEventListener('click', function(event) {
 
 // ============ VIDEO SYNC MANAGEMENT ============
 
+// --------------------------
+// SYNC v2 helpers
+// --------------------------
+function emitVideoControlV2(action, time = null) {
+    if (!syncV2.enabled) return;
+
+    const videoPlayer = document.getElementById('videoPlayer');
+    if (!currentRoom || !socket || !isConnected || !videoPlayer || !currentVideo || !userId) {
+        return;
+    }
+
+    const now = Date.now();
+    const t = typeof time === 'number' ? time : videoPlayer.currentTime;
+    const key = `${action}:${Math.floor(t * 10)}`; // 100ms buckets
+
+    // Basic debounce to avoid duplicate emits (play triggers multiple events on mobile)
+    if (now - syncV2.lastEmitAt < 150 && syncV2.lastEmitKey === key) return;
+    syncV2.lastEmitAt = now;
+    syncV2.lastEmitKey = key;
+
+    // Ensure the socket is joined to the room
+    joinRoomSocket(currentRoom);
+
+    // If server doesn't have the current video yet, share it first
+    if (!syncV2.roomHasVideo && currentVideo) {
+        shareVideoToRoom(currentVideo);
+    }
+
+    const payload = {
+        protocol: SYNC_PROTOCOL,
+        roomCode: currentRoom,
+        userId,
+        videoId: currentVideo.id,
+        action,
+        currentTime: t,
+        // Provide desired playing state explicitly
+        isPlaying: action === 'play' ? true : (action === 'pause' ? false : !videoPlayer.paused),
+        clientSentAt: now
+    };
+
+    socket.emit('video-control', payload, (ack) => {
+        if (ack && ack.ok && typeof ack.version === 'number') {
+            // We still wait for the broadcast, but keeping our version non-decreasing helps
+            syncV2.version = Math.max(syncV2.version, ack.version);
+        }
+    });
+}
+
+function applyVideoControlStateV2(state) {
+    if (!syncV2.enabled || !state) return;
+    if (typeof state.version === 'number' && state.version <= syncV2.version) return;
+
+    // Update version first to prevent re-entrancy loops
+    if (typeof state.version === 'number') syncV2.version = state.version;
+
+    // If we don't have the right video loaded yet, queue the state
+    if (!currentVideo || currentVideo.id !== state.videoId) {
+        syncV2.pendingState = state;
+        return;
+    }
+
+    const videoPlayer = document.getElementById('videoPlayer');
+    if (!videoPlayer) return;
+
+    syncV2.applying = true;
+
+    try {
+        const desiredTime = typeof state.currentTime === 'number' ? state.currentTime : videoPlayer.currentTime;
+        const timeDiff = Math.abs(videoPlayer.currentTime - desiredTime);
+        if (timeDiff > 0.35) {
+            videoPlayer.currentTime = desiredTime;
+        }
+
+        const shouldPlay = !!state.isPlaying;
+        if (!shouldPlay) {
+            videoPlayer.pause();
+        } else {
+            const p = videoPlayer.play();
+            if (p && typeof p.catch === 'function') {
+                p.catch(() => {
+                    // Autoplay restrictions can block remote play on iOS; pause/play from mobile -> PC still works.
+                });
+            }
+        }
+    } finally {
+        // Release apply lock after a short delay so native events don't echo back
+        setTimeout(() => {
+            syncV2.applying = false;
+            updatePlayPauseButton();
+        }, 150);
+    }
+}
+
+function tryApplyPendingStateV2() {
+    if (syncV2.pendingState && currentVideo && syncV2.pendingState.videoId === currentVideo.id) {
+        const pending = syncV2.pendingState;
+        syncV2.pendingState = null;
+        applyVideoControlStateV2(pending);
+    }
+}
+
 // Store event handlers so we can remove them
 let videoSyncHandlers = {
     play: null,
@@ -1547,6 +1707,55 @@ let videoSyncHandlers = {
     playButton: null,
     pauseButton: null
 };
+
+// Setup video sync event listeners (SYNC v2 - play/pause/seek only)
+function setupVideoSyncV2() {
+    const videoPlayer = document.getElementById('videoPlayer');
+    if (!videoPlayer) return;
+
+    if (videoPlayer.hasAttribute('data-sync-v2-setup')) {
+        console.log('Video sync v2 already set up, skipping...');
+        return;
+    }
+
+    // Mark setup
+    videoPlayer.setAttribute('data-sync-v2-setup', 'true');
+
+    // Always update subtitles locally
+    videoPlayer.addEventListener('timeupdate', () => {
+        updateSubtitles(videoPlayer.currentTime);
+    });
+
+    // Local -> room (only when user-initiated; ignore when applying remote state)
+    const emitIfUser = (action) => {
+        if (!syncV2.enabled) return;
+        if (syncV2.applying) return;
+        if (!currentRoom || !socket || !isConnected || !currentVideo) return;
+        emitVideoControlV2(action, videoPlayer.currentTime);
+    };
+
+    videoPlayer.addEventListener('play', () => emitIfUser('play'));
+    videoPlayer.addEventListener('pause', () => emitIfUser('pause'));
+
+    // Seek (native scrubbing)
+    videoPlayer.addEventListener('seeked', () => {
+        if (syncV2.applying) return;
+        const now = Date.now();
+        if (now - syncV2.lastSeekEmitAt < 250) return; // debounce
+        syncV2.lastSeekEmitAt = now;
+        emitIfUser('seek');
+    });
+
+    // Keep UI in sync
+    videoPlayer.addEventListener('play', updatePlayPauseButton);
+    videoPlayer.addEventListener('pause', updatePlayPauseButton);
+    videoPlayer.addEventListener('loadedmetadata', () => {
+        updatePlayPauseButton();
+        tryApplyPendingStateV2();
+    });
+
+    console.log('✅ Video sync v2 event listeners set up');
+}
 
 // Setup video sync event listeners (only once)
 function setupVideoSync() {
@@ -1957,261 +2166,69 @@ function emitVideoStateDirect(action, time, isPlaying) {
 // Skip forward 10 seconds - MOBILE COMPATIBLE: Works on Android, iOS, Windows
 // FREE-FOR-ALL: Works for UPLOADER AND VIEWER on ALL platforms
 function skipForward() {
-    console.log('🎮 skipForward() CALLED - User:', userId, 'Platform: Android/iOS/Windows');
-    
-    try {
-        const videoPlayer = document.getElementById('videoPlayer');
-        if (!videoPlayer || !currentVideo) {
-            console.error('❌ No videoPlayer or currentVideo');
-            return;
-        }
-        
-        const newTime = Math.min(videoPlayer.currentTime + 10, videoPlayer.duration);
-        videoPlayer.currentTime = newTime;
-        
-        // CRITICAL: Always clear isSyncing first (mobile compatible)
-        isSyncing = false;
-        
-        // If not in room, skip locally but don't sync
-        if (!currentRoom || !socket || !isConnected) {
-            console.warn('⚠️ Not in room - skipping locally only');
-            return;
-        }
-        
-        console.log('▶️ SKIP FORWARD: Will sync to all users (Android/iOS/Windows)');
-        
-        // Longer timeout for mobile devices to ensure seek completes
-        // Mobile browsers need more time to process the seek
+    const videoPlayer = document.getElementById('videoPlayer');
+    if (!videoPlayer) return;
+
+    const duration = Number.isFinite(videoPlayer.duration) ? videoPlayer.duration : Infinity;
+    videoPlayer.currentTime = Math.min(videoPlayer.currentTime + 10, duration);
+
+    // SYNC v2: emit seek (some browsers don't reliably fire seeked for programmatic seeks)
+    if (currentRoom && socket && isConnected && currentVideo && !syncV2.applying) {
         setTimeout(() => {
-            if (currentRoom && currentVideo && socket && isConnected) {
-                console.log('📤 EMITTING: Skip forward sync from user', userId, 'Time:', videoPlayer.currentTime, '(ALL platforms)');
-                updateVideoStateInRoom('seek', videoPlayer.currentTime);
-            } else {
-                console.warn('⚠️ Cannot emit skip forward - missing requirements');
+            if (!syncV2.applying) {
+                syncV2.lastSeekEmitAt = Date.now();
+                emitVideoControlV2('seek', videoPlayer.currentTime);
             }
-        }, 300); // Even longer delay for mobile
-    } catch (error) {
-        console.error('❌ ERROR in skipForward:', error);
+        }, 120);
     }
 }
 
 // Skip backward 10 seconds - MOBILE COMPATIBLE: Works on Android, iOS, Windows
 // FREE-FOR-ALL: Works for UPLOADER AND VIEWER on ALL platforms
 function skipBackward() {
-    console.log('🎮 skipBackward() CALLED - User:', userId, 'Platform: Android/iOS/Windows');
-    
-    try {
-        const videoPlayer = document.getElementById('videoPlayer');
-        if (!videoPlayer || !currentVideo) {
-            console.error('❌ No videoPlayer or currentVideo');
-            return;
-        }
-        
-        const newTime = Math.max(videoPlayer.currentTime - 10, 0);
-        videoPlayer.currentTime = newTime;
-        
-        // CRITICAL: Always clear isSyncing first (mobile compatible)
-        isSyncing = false;
-        
-        // If not in room, skip locally but don't sync
-        if (!currentRoom || !socket || !isConnected) {
-            console.warn('⚠️ Not in room - skipping locally only');
-            return;
-        }
-        
-        console.log('◀️ SKIP BACKWARD: Will sync to all users (Android/iOS/Windows)');
-        
-        // Longer timeout for mobile devices to ensure seek completes
-        // Mobile browsers need more time to process the seek
+    const videoPlayer = document.getElementById('videoPlayer');
+    if (!videoPlayer) return;
+
+    videoPlayer.currentTime = Math.max(videoPlayer.currentTime - 10, 0);
+
+    // SYNC v2: emit seek
+    if (currentRoom && socket && isConnected && currentVideo && !syncV2.applying) {
         setTimeout(() => {
-            if (currentRoom && currentVideo && socket && isConnected) {
-                console.log('📤 EMITTING: Skip backward sync from user', userId, 'Time:', videoPlayer.currentTime, '(ALL platforms)');
-                updateVideoStateInRoom('seek', videoPlayer.currentTime);
-            } else {
-                console.warn('⚠️ Cannot emit skip backward - missing requirements');
+            if (!syncV2.applying) {
+                syncV2.lastSeekEmitAt = Date.now();
+                emitVideoControlV2('seek', videoPlayer.currentTime);
             }
-        }, 300); // Even longer delay for mobile
-    } catch (error) {
-        console.error('❌ ERROR in skipBackward:', error);
+        }, 120);
     }
 }
 
 // Toggle play/pause - MOBILE COMPATIBLE: Works on Android, iOS, Windows
 // FREE-FOR-ALL: Works for UPLOADER AND VIEWER on ALL platforms
 function togglePlayPause() {
-    console.log('🎮 togglePlayPause() CALLED - User:', userId, 'Platform: Android/iOS/Windows');
-    
-    try {
-        const videoPlayer = document.getElementById('videoPlayer');
-        if (!videoPlayer) {
-            console.error('❌ No videoPlayer element');
-            return;
+    const videoPlayer = document.getElementById('videoPlayer');
+    if (!videoPlayer) return;
+
+    const wasPaused = videoPlayer.paused;
+
+    // Local action first (user gesture -> required for iOS Safari)
+    if (wasPaused) {
+        const p = videoPlayer.play();
+        if (p && typeof p.catch === 'function') {
+            p.catch(() => {});
         }
-        
-        if (!currentVideo) {
-            console.error('❌ No currentVideo');
-            return;
-        }
-        
-        const wasPaused = videoPlayer.paused;
-        
-        // CRITICAL: Always clear isSyncing first (mobile compatible)
-        isSyncing = false;
-        
-        // If not in room, play locally but don't sync
-        if (!currentRoom || !socket || !isConnected) {
-            console.warn('⚠️ Not in room - playing locally only');
-            if (wasPaused) {
-                const playPromise = videoPlayer.play();
-                if (playPromise !== undefined) {
-                    playPromise.catch(e => console.error('Play failed:', e));
-                }
-            } else {
-                videoPlayer.pause();
+        // Emit v2 after a tiny delay (play event may fire multiple times; v2 emit is debounced)
+        setTimeout(() => {
+            if (!syncV2.applying && currentRoom && socket && isConnected && currentVideo) {
+                emitVideoControlV2('play', videoPlayer.currentTime);
             }
-            return;
-        }
-        
-        console.log('✅ FREE-FOR-ALL: Ready to sync to everyone (ALL platforms)');
-        console.log('   Room:', currentRoom, 'User:', userId);
-        
-        if (wasPaused) {
-            // Will play - ALWAYS sync to everyone (Android/iOS/Windows)
-            console.log('▶️ PLAY ACTION: Will sync to all users on all platforms');
-            const playPromise = videoPlayer.play();
-            
-            // Mobile browsers may return undefined or handle promises differently
-            if (playPromise !== undefined && typeof playPromise.then === 'function') {
-                playPromise.then(() => {
-                    // Longer timeout for mobile devices
-                    setTimeout(() => {
-                        if (!videoPlayer.paused && currentRoom && currentVideo && socket && isConnected) {
-                            console.log('📤 EMITTING: Play sync from user', userId, '(Android/iOS/Windows)');
-                            updateVideoStateInRoom('play', videoPlayer.currentTime);
-                        } else {
-                            console.warn('⚠️ Cannot emit play - missing requirements');
-                        }
-                    }, 300); // Even longer delay for mobile
-                }).catch(e => {
-                    console.error('Play failed:', e);
-                    // Even if play fails, try to sync if video is playing
-                    setTimeout(() => {
-                        if (!videoPlayer.paused && currentRoom && currentVideo && socket && isConnected) {
-                            console.log('📤 EMITTING: Play sync (after error recovery) from user', userId);
-                            updateVideoStateInRoom('play', videoPlayer.currentTime);
-                        }
-                    }, 300);
-                });
-            } else {
-                // Fallback for mobile browsers that don't return promises
-                setTimeout(() => {
-                    if (!videoPlayer.paused && currentRoom && currentVideo && socket && isConnected) {
-                        console.log('📤 EMITTING: Play sync (mobile fallback) from user', userId);
-                        updateVideoStateInRoom('play', videoPlayer.currentTime);
-                    }
-                }, 300);
+        }, 80);
+    } else {
+        videoPlayer.pause();
+        setTimeout(() => {
+            if (!syncV2.applying && currentRoom && socket && isConnected && currentVideo) {
+                emitVideoControlV2('pause', videoPlayer.currentTime);
             }
-        } else {
-            // Will pause - ALWAYS sync to everyone (Android/iOS/Windows)
-            console.log('⏸️⏸️⏸️ PAUSE ACTION DETECTED - Will sync to all users');
-            console.log('   User:', userId, 'Room:', currentRoom);
-            console.log('   Socket connected:', socket?.connected, '| isConnected:', isConnected);
-            
-            // Pause the video FIRST
-            videoPlayer.pause();
-            console.log('   ✅ Video paused locally');
-            
-            // CRITICAL: Ensure we're in the room before emitting
-            if (socket && currentRoom) {
-                // Force join room (in case we're not in it)
-                socket.emit('join-room', {
-                    roomCode: currentRoom,
-                    userId: userId,
-                    nickname: userNickname
-                });
-                console.log('   🔄 Ensuring socket is in room:', currentRoom);
-            }
-            
-            // CRITICAL: Force emit pause MULTIPLE ways to ensure it works
-            const pauseTime = videoPlayer.currentTime;
-            console.log('   Current time:', pauseTime);
-            console.log('   Paused state:', videoPlayer.paused);
-            
-            // Method 1: Immediate emit via updateVideoStateInRoom
-            if (currentRoom && currentVideo && socket && (socket.connected || isConnected)) {
-                console.log('📤 METHOD 1: Direct emit via updateVideoStateInRoom');
-                updateVideoStateInRoom('pause', pauseTime);
-            } else {
-                console.error('❌ METHOD 1 FAILED - Missing requirements:');
-                console.error('   currentRoom:', !!currentRoom, currentRoom);
-                console.error('   currentVideo:', !!currentVideo);
-                console.error('   socket:', !!socket);
-                console.error('   socket.connected:', socket?.connected);
-                console.error('   isConnected:', isConnected);
-            }
-            
-            // Method 2: Direct socket emit (bypass function) - GUARANTEED to work if socket exists
-            if (socket && currentRoom && currentVideo) {
-                console.log('📤 METHOD 2: Direct socket.emit (bypass)');
-                const directState = {
-                    videoId: currentVideo.id,
-                    currentTime: pauseTime,
-                    action: 'pause',
-                    isPlaying: false,
-                    lastUpdatedBy: userId,
-                    timestamp: Date.now()
-                };
-                try {
-                    socket.emit('video-state-update', {
-                        roomCode: currentRoom,
-                        videoState: directState
-                    });
-                    console.log('   ✅ Method 2: Direct emit successful');
-                } catch (e) {
-                    console.error('   ❌ Method 2: Direct emit failed:', e);
-                }
-            }
-            
-            // Method 3: Retry after short delay (in case socket connection is still establishing)
-            setTimeout(() => {
-                if (videoPlayer.paused && currentRoom && currentVideo && socket) {
-                    console.log('📤 METHOD 3: Retry emit after 100ms');
-                    const retryState = {
-                        videoId: currentVideo.id,
-                        currentTime: videoPlayer.currentTime,
-                        action: 'pause',
-                        isPlaying: false,
-                        lastUpdatedBy: userId,
-                        timestamp: Date.now()
-                    };
-                    socket.emit('video-state-update', {
-                        roomCode: currentRoom,
-                        videoState: retryState
-                    });
-                }
-            }, 100);
-            
-            // Method 4: Last resort retry
-            setTimeout(() => {
-                if (videoPlayer.paused && currentRoom && currentVideo && socket) {
-                    console.log('📤 METHOD 4: Last resort retry after 500ms');
-                    const finalState = {
-                        videoId: currentVideo.id,
-                        currentTime: videoPlayer.currentTime,
-                        action: 'pause',
-                        isPlaying: false,
-                        lastUpdatedBy: userId,
-                        timestamp: Date.now()
-                    };
-                    socket.emit('video-state-update', {
-                        roomCode: currentRoom,
-                        videoState: finalState
-                    });
-                }
-            }, 500);
-        }
-    } catch (error) {
-        console.error('❌ ERROR in togglePlayPause:', error);
+        }, 30);
     }
 }
 
@@ -2256,10 +2273,19 @@ function shareVideoToRoom(videoObject) {
     console.log('Sharing video to room:', currentRoom, 'Video data:', videoData);
     
     // Send video info via WebSocket
+    // Ensure joined before sharing
+    joinRoomSocket(currentRoom);
     socket.emit('video-loaded', {
         roomCode: currentRoom,
         userId: userId,
         video: videoData
+    }, (ack) => {
+        if (ack && ack.ok) {
+            syncV2.roomHasVideo = true;
+            if (typeof ack.version === 'number') {
+                syncV2.version = Math.max(syncV2.version, ack.version);
+            }
+        }
     });
     
     // Update room status
