@@ -23,6 +23,9 @@ let isSyncing = false; // Prevents sync loops
 let lastVideoState = null; // Last known video state
 let videoSyncInterval = null;
 let shownNotifications = new Set(); // Track which video notifications have been shown
+let lastStateUpdateTime = 0; // Track when we last sent a state update
+let pendingStateUpdate = null; // Queue for pending state updates
+let lastReceivedStateTimestamp = 0; // Track most recent received state timestamp
 
 // Generate unique user ID
 function generateUserId() {
@@ -112,26 +115,67 @@ async function handleFileUpload(file) {
     // Show upload progress
     const fileInfo = document.getElementById('fileInfo');
     if (fileInfo) {
-        fileInfo.innerHTML = `<p style="color: #667eea;">⏳ Uploading "${file.name}" to server...</p>`;
+        fileInfo.innerHTML = `
+            <p style="color: #667eea;">⏳ Uploading "${file.name}" to server...</p>
+            <div style="margin-top: 10px; background: rgba(0,0,0,0.2); border-radius: 10px; overflow: hidden; height: 8px;">
+                <div id="uploadProgressBar" style="background: #667eea; height: 100%; width: 0%; transition: width 0.3s;"></div>
+            </div>
+        `;
         fileInfo.classList.add('active');
     }
 
     try {
-        // Upload file to server
+        // Upload file to server with progress tracking
         const formData = new FormData();
         formData.append('video', file);
 
-        console.log('Uploading file to server:', file.name);
-        const response = await fetch(`${SERVER_URL}/api/upload`, {
-            method: 'POST',
-            body: formData
+        console.log('Uploading file to server:', file.name, 'Size:', (file.size / 1024 / 1024).toFixed(2), 'MB');
+        
+        const xhr = new XMLHttpRequest();
+        
+        // Track upload progress
+        xhr.upload.addEventListener('progress', (e) => {
+            if (e.lengthComputable) {
+                const percentComplete = (e.loaded / e.total) * 100;
+                const progressBar = document.getElementById('uploadProgressBar');
+                if (progressBar) {
+                    progressBar.style.width = percentComplete + '%';
+                }
+            }
+        });
+        
+        const response = await new Promise((resolve, reject) => {
+            xhr.onload = () => {
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    try {
+                        resolve({
+                            ok: true,
+                            status: xhr.status,
+                            json: () => Promise.resolve(JSON.parse(xhr.responseText))
+                        });
+                    } catch (e) {
+                        reject(new Error('Invalid JSON response'));
+                    }
+                } else {
+                    reject(new Error(`Upload failed: ${xhr.statusText}`));
+                }
+            };
+            
+            xhr.onerror = () => reject(new Error('Upload failed: network error'));
+            
+            xhr.open('POST', `${SERVER_URL}/api/upload`);
+            xhr.send(formData);
         });
 
-        if (!response.ok) {
-            throw new Error(`Upload failed: ${response.statusText}`);
-        }
-
         const data = await response.json();
+        
+        // Remove progress bar after completion
+        setTimeout(() => {
+            const progressBar = document.getElementById('uploadProgressBar');
+            if (progressBar && progressBar.parentElement) {
+                progressBar.parentElement.style.display = 'none';
+            }
+        }, 500);
         console.log('Upload response:', data);
 
         if (!data.success || !data.video) {
@@ -166,12 +210,54 @@ async function handleFileUpload(file) {
         // Don't sync to room yet - we'll do that after video loads
         loadVideo(videoObject, false);
         
-        // Wait a bit to ensure video starts loading, then share to room
-        setTimeout(() => {
-            if (currentRoom) {
-                shareVideoToRoom(videoObject);
+        // Wait for video to start loading before sharing to room
+        const videoPlayer = document.getElementById('videoPlayer');
+        if (videoPlayer) {
+            const shareWhenReady = () => {
+                if (videoPlayer.readyState >= 1 || videoPlayer.networkState >= 1) {
+                    // Video has started loading
+                    if (currentRoom) {
+                        console.log('Video ready, sharing to room');
+                        shareVideoToRoom(videoObject);
+                    }
+                } else {
+                    // Wait a bit more
+                    setTimeout(shareWhenReady, 200);
+                }
+            };
+            
+            // Try immediately if ready
+            if (videoPlayer.readyState >= 1) {
+                setTimeout(() => {
+                    if (currentRoom) {
+                        shareVideoToRoom(videoObject);
+                    }
+                }, 300);
+            } else {
+                // Wait for loadstart event
+                videoPlayer.addEventListener('loadstart', () => {
+                    setTimeout(() => {
+                        if (currentRoom) {
+                            shareVideoToRoom(videoObject);
+                        }
+                    }, 500);
+                }, { once: true });
+                
+                // Fallback timeout
+                setTimeout(() => {
+                    if (currentRoom) {
+                        shareVideoToRoom(videoObject);
+                    }
+                }, 1500);
             }
-        }, 500);
+        } else {
+            // Fallback if video player not found
+            setTimeout(() => {
+                if (currentRoom) {
+                    shareVideoToRoom(videoObject);
+                }
+            }, 1000);
+        }
 
         // Update movies library
         updateMoviesLibrary();
@@ -258,19 +344,31 @@ function loadVideo(videoObject, syncToRoom = true) {
         // Force reload the video
         videoPlayer.load();
         
-        console.log('Video load() called. Source src:', videoSource ? videoSource.src : 'N/A', 'Video readyState:', videoPlayer.readyState);
+        console.log('Video load() called. Source src:', videoSource ? videoSource.src : videoPlayer.querySelector('source')?.src, 'Video readyState:', videoPlayer.readyState);
         
-        // Check if video loaded successfully after a delay
+        // Add error handler for retry
+        const handleLoadError = () => {
+            console.warn('Video load error detected, readyState:', videoPlayer.readyState, 'networkState:', videoPlayer.networkState);
+            if (videoPlayer.networkState === 2 || videoPlayer.networkState === 3) {
+                console.log('Retrying video load...');
+                setTimeout(() => {
+                    videoPlayer.load();
+                }, 500);
+            }
+        };
+        
+        // Check if video loaded successfully after delays
         setTimeout(() => {
             if (videoPlayer.readyState === 0) {
-                console.warn('Video readyState is still 0, checking network state:', videoPlayer.networkState);
-                if (videoPlayer.networkState === 2 || videoPlayer.networkState === 3) {
-                    console.error('Video network error detected. Retrying...');
-                    // Retry loading
-                    videoPlayer.load();
-                }
+                handleLoadError();
             }
         }, 500);
+        
+        setTimeout(() => {
+            if (videoPlayer.readyState === 0 && videoPlayer.networkState !== 0) {
+                handleLoadError();
+            }
+        }, 1500);
     }, 100);
 
     videoInfo.innerHTML = `
@@ -524,15 +622,42 @@ function connectToServer() {
         updateChatDisplay();
         
         // If there's a video in the room, load it
-        if (data.currentVideo && !currentVideo) {
-            loadVideoFromServer(data.currentVideo);
-        }
-        
-        // Sync video state if available
-        if (data.videoState) {
+        // Always load if there's a currentVideo, even if we have one (might be different video)
+        if (data.currentVideo) {
+            console.log('Room has video, loading:', data.currentVideo);
+            // Use a small delay to ensure DOM is ready
             setTimeout(() => {
-                applyVideoState(data.videoState);
-            }, 500);
+                loadVideoFromServer(data.currentVideo);
+                
+                // Sync video state after video loads
+                if (data.videoState) {
+                    const videoPlayer = document.getElementById('videoPlayer');
+                    if (videoPlayer) {
+                        // Wait for video to be ready before applying state
+                        const applyStateWhenReady = () => {
+                            if (videoPlayer.readyState >= 2) { // HAVE_CURRENT_DATA or better
+                                setTimeout(() => {
+                                    applyVideoState(data.videoState);
+                                }, 300);
+                            } else {
+                                // Wait a bit more and try again
+                                setTimeout(applyStateWhenReady, 200);
+                            }
+                        };
+                        
+                        // Try immediately if ready, otherwise wait
+                        if (videoPlayer.readyState >= 2) {
+                            setTimeout(() => applyVideoState(data.videoState), 500);
+                        } else {
+                            videoPlayer.addEventListener('canplay', () => {
+                                setTimeout(() => applyVideoState(data.videoState), 500);
+                            }, { once: true });
+                            // Fallback timeout
+                            setTimeout(applyStateWhenReady, 2000);
+                        }
+                    }
+                }
+            }, 100);
         }
     });
 
@@ -563,15 +688,21 @@ function connectToServer() {
     // Video loaded by someone else
     socket.on('video-loaded', (data) => {
         if (data.userId !== userId) {
+            console.log('Received video-loaded event:', data.video);
+            // Always load the video, even if we have one (might be different)
             loadVideoFromServer(data.video);
             addSystemMessage(`${data.user?.nickname || 'Someone'} loaded video: ${data.video.name}`);
         }
     });
 
     // Video state update from others
-    socket.on('video-state-update', (videoState) => {
+    socket.on('video-state-update', (data) => {
+        const videoState = data.videoState || data;
+        console.log('Received video-state-update:', videoState, 'from user:', videoState.lastUpdatedBy, 'my userId:', userId);
         if (videoState.lastUpdatedBy !== userId) {
             applyVideoState(videoState);
+        } else {
+            console.log('Ignoring own video state update');
         }
     });
 }
@@ -830,72 +961,88 @@ function leaveRoom() {
 function loadVideoFromServer(videoData) {
     console.log('Loading video from server:', videoData);
     
-    // Check if we already have this video
-    const existingVideo = uploadedVideos.find(v => v.id === videoData.id);
+    // Always create a fresh video object to ensure correct URL
+    // Include the MIME type as a query parameter so server knows the content type
+    const videoMimeType = videoData.type || 'video/mp4';
+    const videoUrl = `${SERVER_URL}/api/video/${videoData.filename || videoData.id}?type=${encodeURIComponent(videoMimeType)}`;
+    console.log('Creating video object with URL:', videoUrl);
+    console.log('Video MIME type:', videoMimeType);
     
-    let videoObject;
+    const videoObject = {
+        id: videoData.id,
+        name: videoData.name,
+        size: videoData.size || 'Unknown',
+        type: videoMimeType,
+        url: videoUrl,
+        filename: videoData.filename || videoData.id,
+        uploadDate: new Date().toLocaleDateString(),
+        fromServer: true
+    };
     
-    if (existingVideo) {
-        videoObject = existingVideo;
-        console.log('Using existing video:', videoObject);
+    // Check if we already have this video in our array, update it if so
+    const existingIndex = uploadedVideos.findIndex(v => v.id === videoData.id);
+    if (existingIndex !== -1) {
+        uploadedVideos[existingIndex] = videoObject;
     } else {
-        // Create video object with server URL
-        // Include the MIME type as a query parameter so server knows the content type
-        const videoMimeType = videoData.type || 'video/mp4';
-        const videoUrl = `${SERVER_URL}/api/video/${videoData.filename || videoData.id}?type=${encodeURIComponent(videoMimeType)}`;
-        console.log('Creating new video object with URL:', videoUrl);
-        console.log('Video MIME type:', videoMimeType);
-        
-        videoObject = {
-            id: videoData.id,
-            name: videoData.name,
-            size: videoData.size || 'Unknown',
-            type: videoMimeType,
-            url: videoUrl,
-            filename: videoData.filename || videoData.id,
-            uploadDate: new Date().toLocaleDateString(),
-            fromServer: true
-        };
-        
-        // Add to uploaded videos
         uploadedVideos.push(videoObject);
-        saveVideosToStorage();
     }
+    saveVideosToStorage();
     
     // Load in player - this will show the video and controls
     loadVideo(videoObject, false);
     
-    // Ensure custom controls are shown for other users
+    // Ensure custom controls are shown for other users with robust loading
     const videoPlayer = document.getElementById('videoPlayer');
     const customControls = document.getElementById('customControls');
     
     if (videoPlayer && customControls) {
+        let controlsShown = false;
+        
         // Show controls when video metadata is loaded
         const showControlsOnLoad = () => {
-            if (customControls) {
+            if (customControls && !controlsShown) {
+                controlsShown = true;
                 customControls.style.display = 'flex';
+                updatePlayPauseButton();
+                console.log('Controls shown for other user');
             }
-            updatePlayPauseButton();
         };
         
-        // Add comprehensive error handler
+        // Add comprehensive error handler with retry
         const errorHandler = (e) => {
             console.error('Video load error for other user:', e);
             console.error('Video src:', videoPlayer.src);
-            console.error('Video source src:', videoPlayer.querySelector('source')?.src);
             console.error('Video readyState:', videoPlayer.readyState);
+            console.error('Video networkState:', videoPlayer.networkState);
+            
             const error = videoPlayer.error;
             if (error) {
                 console.error('Video error code:', error.code);
                 console.error('Video error message:', error.message);
-                // Show user-friendly error
-                const videoInfo = document.getElementById('videoInfo');
-                if (videoInfo) {
-                    videoInfo.innerHTML = `<p style="color: red;">Error loading video. Please try refreshing the page.</p>`;
-                }
+                
+                // Retry loading after a delay
+                setTimeout(() => {
+                    console.log('Retrying video load...');
+                    if (videoObject && videoObject.url) {
+                        // Clear and reload
+                        const sources = videoPlayer.querySelectorAll('source');
+                        sources.forEach(s => s.remove());
+                        videoPlayer.removeAttribute('src');
+                        
+                        setTimeout(() => {
+                            const newSource = document.createElement('source');
+                            newSource.src = videoObject.url;
+                            newSource.type = videoObject.type || 'video/mp4';
+                            videoPlayer.appendChild(newSource);
+                            videoPlayer.load();
+                        }, 100);
+                    }
+                }, 1000);
             }
         };
         
+        // Remove old error handlers and add new one
+        videoPlayer.removeEventListener('error', errorHandler);
         videoPlayer.addEventListener('error', errorHandler, { once: true });
         
         // Add loadstart listener
@@ -903,50 +1050,45 @@ function loadVideoFromServer(videoData) {
             console.log('Video load started for other user');
         }, { once: true });
         
-        // Try to show controls immediately
-        setTimeout(() => {
-            if (videoPlayer.readyState >= 1) {
-                // Video already has metadata
-                console.log('Video readyState is:', videoPlayer.readyState);
+        // Multiple event listeners for better compatibility
+        const events = ['loadedmetadata', 'canplay', 'canplaythrough', 'loadeddata'];
+        events.forEach(eventName => {
+            videoPlayer.addEventListener(eventName, () => {
+                console.log(`Video ${eventName} event fired for other user`);
                 showControlsOnLoad();
-            }
-        }, 300);
+            }, { once: true });
+        });
         
-        // Listen for metadata load
-        videoPlayer.addEventListener('loadedmetadata', () => {
-            console.log('Video metadata loaded for other user');
-            showControlsOnLoad();
-        }, { once: true });
+        // Immediate check if video already has metadata
+        if (videoPlayer.readyState >= 1) {
+            console.log('Video already has metadata, readyState:', videoPlayer.readyState);
+            setTimeout(showControlsOnLoad, 100);
+        }
         
-        // Listen for when video can start playing
-        videoPlayer.addEventListener('canplay', () => {
-            console.log('Video can play for other user');
-            if (customControls) {
-                customControls.style.display = 'flex';
-            }
-            updatePlayPauseButton();
-        }, { once: true });
-        
-        // Listen for loadeddata
-        videoPlayer.addEventListener('loadeddata', () => {
-            console.log('Video data loaded for other user');
-        }, { once: true });
-        
-        // Fallback: check again after a delay to ensure controls are visible
+        // Fallback: ensure controls are shown after delays
         setTimeout(() => {
             if (customControls && customControls.style.display !== 'flex' && currentVideo) {
-                console.log('Fallback: showing controls');
-                customControls.style.display = 'flex';
-                updatePlayPauseButton();
+                console.log('Fallback 1: Force showing controls');
+                showControlsOnLoad();
+            }
+        }, 800);
+        
+        setTimeout(() => {
+            if (customControls && customControls.style.display !== 'flex' && currentVideo) {
+                console.log('Fallback 2: Force showing controls');
+                showControlsOnLoad();
             }
             
             // Double-check video is loading
-            if (videoPlayer.readyState === 0 && !videoPlayer.src) {
-                console.warn('Video not loading, retrying...');
-                videoPlayer.src = videoObject.url;
-                videoPlayer.load();
+            if (videoPlayer.readyState === 0 && !videoPlayer.src && !videoPlayer.querySelector('source')?.src) {
+                console.warn('Video not loading, retrying with direct src...');
+                const source = videoPlayer.querySelector('source');
+                if (source && videoObject.url) {
+                    source.src = videoObject.url;
+                    videoPlayer.load();
+                }
             }
-        }, 1500);
+        }, 2000);
     }
     
     // Update library
@@ -1229,16 +1371,22 @@ function setupVideoSync() {
     
     if (!videoPlayer) return;
     
-    // Play event
+    // Play event - use a small delay to ensure state is accurate
     videoPlayer.addEventListener('play', function() {
         if (currentRoom && !isSyncing) {
-            updateVideoStateInRoom('play');
+            // Small delay to get accurate currentTime after play starts
+            setTimeout(() => {
+                if (!videoPlayer.paused && currentRoom && !isSyncing) {
+                    updateVideoStateInRoom('play');
+                }
+            }, 50);
         }
     });
     
-    // Pause event
+    // Pause event - sync immediately for better responsiveness
     videoPlayer.addEventListener('pause', function() {
         if (currentRoom && !isSyncing) {
+            // For pause, we can sync immediately since paused state is instant
             updateVideoStateInRoom('pause');
         }
     });
@@ -1295,12 +1443,22 @@ function skipForward() {
     if (!videoPlayer || !currentVideo) return;
     
     const newTime = Math.min(videoPlayer.currentTime + 10, videoPlayer.duration);
+    
+    // Temporarily disable isSyncing to allow our own action to sync
+    const wasSyncing = isSyncing;
+    isSyncing = false;
+    
     videoPlayer.currentTime = newTime;
     
-    // Sync to room
+    // Sync to room immediately
     if (currentRoom && socket && isConnected) {
         updateVideoStateInRoom('seek', newTime);
     }
+    
+    // Restore isSyncing after a delay
+    setTimeout(() => {
+        isSyncing = wasSyncing;
+    }, 200);
 }
 
 // Skip backward 10 seconds
@@ -1309,12 +1467,22 @@ function skipBackward() {
     if (!videoPlayer || !currentVideo) return;
     
     const newTime = Math.max(videoPlayer.currentTime - 10, 0);
+    
+    // Temporarily disable isSyncing to allow our own action to sync
+    const wasSyncing = isSyncing;
+    isSyncing = false;
+    
     videoPlayer.currentTime = newTime;
     
-    // Sync to room
+    // Sync to room immediately
     if (currentRoom && socket && isConnected) {
         updateVideoStateInRoom('seek', newTime);
     }
+    
+    // Restore isSyncing after a delay
+    setTimeout(() => {
+        isSyncing = wasSyncing;
+    }, 200);
 }
 
 // Toggle play/pause
@@ -1322,13 +1490,48 @@ function togglePlayPause() {
     const videoPlayer = document.getElementById('videoPlayer');
     if (!videoPlayer || !currentVideo) return;
     
-    if (videoPlayer.paused) {
-        videoPlayer.play();
-    } else {
-        videoPlayer.pause();
-    }
+    // Temporarily disable isSyncing to allow our own action to sync
+    const wasSyncing = isSyncing;
+    isSyncing = false;
     
-    // Sync happens automatically via the play/pause event listeners
+    const willPause = !videoPlayer.paused;
+    
+    if (willPause) {
+        // Pause immediately
+        videoPlayer.pause();
+        // Sync pause state right away
+        if (currentRoom && socket && isConnected) {
+            updateVideoStateInRoom('pause');
+        }
+        isSyncing = wasSyncing;
+    } else {
+        // Play and wait for it to start
+        const playPromise = videoPlayer.play();
+        if (playPromise !== undefined) {
+            playPromise
+                .then(() => {
+                    // Wait a moment for play to actually start
+                    setTimeout(() => {
+                        if (currentRoom && socket && isConnected && !videoPlayer.paused) {
+                            updateVideoStateInRoom('play');
+                        }
+                        isSyncing = wasSyncing;
+                    }, 100);
+                })
+                .catch(e => {
+                    console.error('Play failed:', e);
+                    isSyncing = wasSyncing;
+                });
+        } else {
+            // Fallback for browsers that don't return promise
+            setTimeout(() => {
+                if (currentRoom && socket && isConnected && !videoPlayer.paused) {
+                    updateVideoStateInRoom('play');
+                }
+                isSyncing = wasSyncing;
+            }, 100);
+        }
+    }
 }
 
 // Update play/pause button icon
@@ -1387,27 +1590,51 @@ function shareVideoToRoom(videoObject) {
 
 // Update video state in room
 function updateVideoStateInRoom(action, time = null) {
-    if (!currentRoom || !socket || !isConnected) return;
+    if (!currentRoom || !socket || !isConnected) {
+        console.warn('Cannot update video state: not in room or not connected');
+        return;
+    }
     
     const videoPlayer = document.getElementById('videoPlayer');
-    if (!videoPlayer || !currentVideo) return;
+    if (!videoPlayer || !currentVideo) {
+        console.warn('Cannot update video state: no video player or current video');
+        return;
+    }
+    
+    // Debounce rapid updates (especially for play/pause)
+    const now = Date.now();
+    if (action === 'play' || action === 'pause') {
+        // For play/pause, only send if enough time has passed or if it's a different action
+        if (now - lastStateUpdateTime < 200 && lastVideoState && lastVideoState.action === action) {
+            console.log('Debouncing rapid play/pause update');
+            return;
+        }
+    } else if (action === 'timeupdate') {
+        // For timeupdate, only send every 300ms
+        if (now - lastStateUpdateTime < 300) {
+            return;
+        }
+    }
     
     const newTime = time !== null ? time : videoPlayer.currentTime;
+    const isPlaying = action === 'play' ? true : (action === 'pause' ? false : !videoPlayer.paused);
     
     const videoState = {
         videoId: currentVideo.id,
         currentTime: newTime,
-        isPlaying: action === 'play' || (action === 'timeupdate' && !videoPlayer.paused),
+        action: action,
+        isPlaying: isPlaying,
         lastUpdatedBy: userId,
-        action: action
+        timestamp: now
     };
     
-    lastVideoState = {
-        ...videoState,
-        timestamp: Date.now()
-    };
+    // Update local state
+    lastVideoState = videoState;
+    lastStateUpdateTime = now;
     
-    // Send via WebSocket
+    console.log('Emitting video-state-update:', videoState);
+    
+    // Emit to server with timestamp for ordering
     socket.emit('video-state-update', {
         roomCode: currentRoom,
         videoState: videoState
@@ -1464,50 +1691,134 @@ function syncVideoFromRoom(videoState) {
 
 // Apply video state to player
 function applyVideoState(videoState) {
-    if (!videoState || isSyncing) return;
-    
-    const videoPlayer = document.getElementById('videoPlayer');
-    if (!videoPlayer) return;
+    if (!videoState) {
+        console.warn('applyVideoState called with no videoState');
+        return;
+    }
     
     // Don't sync if we were the one who made the change
     if (videoState.lastUpdatedBy === userId) {
+        console.log('Ignoring own video state update in applyVideoState');
+        return;
+    }
+    
+    // Ignore stale updates (older than what we've already applied)
+    if (videoState.timestamp && videoState.timestamp < lastReceivedStateTimestamp) {
+        console.log('Ignoring stale state update:', videoState.timestamp, 'vs', lastReceivedStateTimestamp);
+        return;
+    }
+    lastReceivedStateTimestamp = videoState.timestamp || Date.now();
+    
+    if (isSyncing) {
+        console.log('Already syncing, queuing update');
+        // Queue the update if we're syncing
+        pendingStateUpdate = videoState;
+        return;
+    }
+    
+    const videoPlayer = document.getElementById('videoPlayer');
+    if (!videoPlayer || !currentVideo) {
+        console.warn('Cannot apply video state: no player or current video');
+        return;
+    }
+    
+    // Don't sync if it's a different video
+    if (videoState.videoId && currentVideo.id !== videoState.videoId) {
+        console.log('Video ID mismatch, ignoring state update');
+        return;
+    }
+    
+    // Check if video is ready
+    if (videoPlayer.readyState < 2) {
+        console.log('Video not ready, waiting...');
+        const applyWhenReady = () => {
+            if (videoPlayer.readyState >= 2) {
+                applyVideoState(videoState);
+            } else {
+                setTimeout(applyWhenReady, 100);
+            }
+        };
+        setTimeout(applyWhenReady, 100);
         return;
     }
     
     isSyncing = true;
+    console.log('Applying video state:', videoState);
     
-    // Sync time if there's a significant difference (>1 second)
+    // Always sync time on play/pause/seek actions for better synchronization
+    // Use a smaller threshold for play/pause to ensure tight sync
+    const timeThreshold = (videoState.action === 'play' || videoState.action === 'pause') ? 0.3 : 0.5;
     const timeDiff = Math.abs(videoPlayer.currentTime - videoState.currentTime);
-    if (timeDiff > 1) {
-        videoPlayer.currentTime = videoState.currentTime;
-    }
     
-    // Sync time if there's a significant difference (>1 second) or if it's a seek action
-    if (videoState.action === 'seek') {
+    if (timeDiff > timeThreshold) {
+        console.log(`Syncing time: ${videoPlayer.currentTime.toFixed(2)} -> ${videoState.currentTime.toFixed(2)} (diff: ${timeDiff.toFixed(2)}s)`);
         videoPlayer.currentTime = videoState.currentTime;
+        // Wait a moment for time to update
+        setTimeout(() => {
+            applyPlayPauseState(videoState);
+        }, 50);
     } else {
-        const timeDiff = Math.abs(videoPlayer.currentTime - videoState.currentTime);
-        if (timeDiff > 1) {
-            videoPlayer.currentTime = videoState.currentTime;
-        }
+        applyPlayPauseState(videoState);
+    }
+}
+
+// Helper function to apply play/pause state
+function applyPlayPauseState(videoState) {
+    const videoPlayer = document.getElementById('videoPlayer');
+    if (!videoPlayer) {
+        isSyncing = false;
+        return;
     }
     
     // Sync play/pause state
     if (videoState.action === 'play' && videoPlayer.paused) {
-        videoPlayer.play().catch(e => console.log('Play failed:', e));
+        console.log('Syncing play');
+        const playPromise = videoPlayer.play();
+        if (playPromise !== undefined) {
+            playPromise
+                .then(() => {
+                    console.log('Play synced successfully');
+                    updatePlayPauseButton();
+                    finishSync();
+                })
+                .catch(e => {
+                    console.error('Play failed during sync:', e);
+                    finishSync();
+                });
+        } else {
+            updatePlayPauseButton();
+            finishSync();
+        }
     } else if (videoState.action === 'pause' && !videoPlayer.paused) {
+        console.log('Syncing pause');
         videoPlayer.pause();
+        updatePlayPauseButton();
+        finishSync();
+    } else {
+        // Already in correct state or not play/pause action
+        updatePlayPauseButton();
+        finishSync();
     }
+}
+
+// Helper function to finish sync and handle pending updates
+function finishSync() {
+    // Update room status
+    updateRoomStatus();
     
-    // Update play/pause button icon
-    updatePlayPauseButton();
-    
-    // Reset sync flag after a delay
-    setTimeout(() => {
-        isSyncing = false;
-        // Update room status to show sync indicator
-        updateRoomStatus();
-    }, 100);
+    // Process pending update if any
+    if (pendingStateUpdate) {
+        const pending = pendingStateUpdate;
+        pendingStateUpdate = null;
+        setTimeout(() => {
+            applyVideoState(pending);
+        }, 100);
+    } else {
+        // Reset sync flag after a delay
+        setTimeout(() => {
+            isSyncing = false;
+        }, 200);
+    }
 }
 
 // Check for video sync when video loads

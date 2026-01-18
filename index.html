@@ -2,9 +2,11 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#5d6e2e">
     <title>Movie Theater - Latest Films</title>
     <link rel="stylesheet" href="styles.css">
 </head>
@@ -71,7 +73,7 @@
                                 <p class="sync-indicator" id="syncIndicator" style="display: none;">🔄 Video playback is synchronized</p>
                             </div>
                             <div class="player-wrapper">
-                                <video id="videoPlayer" controls playsinline webkit-playsinline>
+                                <video id="videoPlayer" controls playsinline webkit-playsinline x5-playsinline x5-video-player-type="h5" x5-video-orientation="portraint" preload="auto">
                                     <source id="videoSource" src="" type="video/mp4">
                                     Your browser does not support the video tag.
                                 </video>

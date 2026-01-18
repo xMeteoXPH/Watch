@@ -7,18 +7,18 @@
 body {
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     line-height: 1.6;
-    color: #333;
-    background-color: #f4f4f4;
+    color: #e0e0e0;
+    background-color: #121212;
 }
 
 header {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, #5d6e2e 0%, #4a5d23 100%);
     color: white;
     padding: 1rem 0;
     position: sticky;
     top: 0;
     z-index: 1000;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
 }
 
 nav {
@@ -88,13 +88,13 @@ main {
 }
 
 .hero {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, #5d6e2e 0%, #4a5d23 100%);
     color: white;
     padding: 8rem 2rem;
     text-align: center;
     border-radius: 10px;
     margin-bottom: 4rem;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
 }
 
 .hero-content h2 {
@@ -108,8 +108,8 @@ main {
 }
 
 .cta-button {
-    background: white;
-    color: #667eea;
+    background: #1a1a1a;
+    color: #7a8d52;
     border: none;
     padding: 1rem 2rem;
     font-size: 1.1rem;
@@ -128,15 +128,15 @@ main {
     font-size: 2.5rem;
     margin-bottom: 2rem;
     text-align: center;
-    color: #333;
+    color: #e0e0e0;
 }
 
 .watch-section {
     margin: 4rem 0;
-    background: white;
+    background: #1a1a1a;
     padding: 3rem;
     border-radius: 10px;
-    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.5);
 }
 
 .video-player-container {
@@ -245,17 +245,17 @@ main {
 .subtitle-upload-section {
     margin-top: 2rem;
     padding-top: 2rem;
-    border-top: 2px solid #ddd;
+    border-top: 2px solid #444;
 }
 
 .subtitle-upload-box {
-    background: #f8f9ff;
-    border-color: #667eea;
+    background: #2a2a2a;
+    border-color: #5d6e2e;
 }
 
 .subtitle-upload-box:hover {
-    background: #f0f2ff;
-    border-color: #764ba2;
+    background: #333333;
+    border-color: #7a8d52;
 }
 
 .subtitle-controls {
@@ -264,12 +264,12 @@ main {
     align-items: center;
     margin-top: 1rem;
     padding: 1rem;
-    background: #e8ebff;
+    background: #2a2a2a;
     border-radius: 5px;
 }
 
 .subtitle-controls span {
-    color: #667eea;
+    color: #7a8d52;
     font-weight: 500;
 }
 
@@ -291,28 +291,28 @@ main {
 .upload-title {
     font-size: 1.5rem;
     margin-bottom: 1.5rem;
-    color: #333;
+    color: #e0e0e0;
     text-align: center;
 }
 
 .upload-box {
-    border: 3px dashed #667eea;
+    border: 3px dashed #5d6e2e;
     border-radius: 10px;
     padding: 3rem;
     text-align: center;
-    background: #f8f9ff;
+    background: #1f1f1f;
     transition: all 0.3s;
     cursor: pointer;
 }
 
 .upload-box:hover {
-    background: #f0f2ff;
-    border-color: #764ba2;
+    background: #2a2a2a;
+    border-color: #7a8d52;
 }
 
 .upload-box.dragover {
-    background: #e8ebff;
-    border-color: #764ba2;
+    background: #333333;
+    border-color: #7a8d52;
     transform: scale(1.02);
 }
 
@@ -331,18 +331,18 @@ main {
 .upload-text {
     font-size: 1.2rem;
     font-weight: bold;
-    color: #667eea;
+    color: #7a8d52;
 }
 
 .upload-hint {
     font-size: 0.9rem;
-    color: #666;
+    color: #b0b0b0;
 }
 
 .file-info {
     margin-top: 1.5rem;
     padding: 1rem;
-    background: #f0f0f0;
+    background: #2a2a2a;
     border-radius: 5px;
     display: none;
 }
@@ -355,7 +355,7 @@ main {
     display: flex;
     justify-content: space-between;
     padding: 0.5rem 0;
-    border-bottom: 1px solid #ddd;
+    border-bottom: 1px solid #444;
 }
 
 .file-info-item:last-child {
@@ -364,11 +364,11 @@ main {
 
 .file-info-label {
     font-weight: bold;
-    color: #333;
+    color: #e0e0e0;
 }
 
 .file-info-value {
-    color: #666;
+    color: #b0b0b0;
 }
 
 .movies-section {
@@ -383,10 +383,10 @@ main {
 }
 
 .movie-card {
-    background: white;
+    background: #1a1a1a;
     border-radius: 10px;
     overflow: hidden;
-    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.5);
     transition: transform 0.3s, box-shadow 0.3s;
     cursor: pointer;
     position: relative;
@@ -402,7 +402,7 @@ main {
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    background: rgba(102, 126, 234, 0.9);
+    background: rgba(93, 110, 46, 0.9);
     color: white;
     width: 60px;
     height: 60px;
@@ -450,7 +450,7 @@ main {
     width: 100%;
     height: 400px;
     object-fit: cover;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, #5d6e2e 0%, #4a5d23 100%);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -466,19 +466,19 @@ main {
     font-size: 1.3rem;
     font-weight: bold;
     margin-bottom: 0.5rem;
-    color: #333;
+    color: #e0e0e0;
 }
 
 .movie-year {
-    color: #666;
+    color: #b0b0b0;
     font-size: 0.9rem;
     margin-bottom: 0.5rem;
 }
 
 .movie-rating {
     display: inline-block;
-    background: #ffd700;
-    color: #333;
+    background: #5d6e2e;
+    color: #e0e0e0;
     padding: 0.3rem 0.6rem;
     border-radius: 5px;
     font-weight: bold;
@@ -487,10 +487,10 @@ main {
 
 .room-section {
     margin: 4rem 0;
-    background: white;
+    background: #1a1a1a;
     padding: 3rem;
     border-radius: 10px;
-    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.5);
 }
 
 .room-container {
@@ -509,7 +509,7 @@ main {
 .room-join {
     text-align: center;
     padding: 2rem;
-    background: #f8f9ff;
+    background: #1f1f1f;
     border-radius: 10px;
 }
 
@@ -517,18 +517,18 @@ main {
 .room-join h3 {
     font-size: 1.5rem;
     margin-bottom: 0.5rem;
-    color: #333;
+    color: #e0e0e0;
 }
 
 .room-create p,
 .room-join p {
-    color: #666;
+    color: #b0b0b0;
     margin-bottom: 1.5rem;
 }
 
 .room-divider {
     text-align: center;
-    color: #999;
+    color: #666;
     font-weight: bold;
     position: relative;
 }
@@ -540,7 +540,7 @@ main {
     top: 50%;
     width: 45%;
     height: 1px;
-    background: #ddd;
+    background: #444;
 }
 
 .room-divider::before {
@@ -552,7 +552,7 @@ main {
 }
 
 .room-btn {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, #5d6e2e 0%, #4a5d23 100%);
     color: white;
     border: none;
     padding: 1rem 2rem;
@@ -565,7 +565,7 @@ main {
 
 .room-btn:hover {
     transform: translateY(-2px);
-    box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+    box-shadow: 0 5px 15px rgba(93, 110, 46, 0.6);
 }
 
 .join-input-group {
@@ -578,17 +578,20 @@ main {
 #roomCodeInput {
     flex: 1;
     padding: 1rem;
-    border: 2px solid #ddd;
+    border: 2px solid #444;
     border-radius: 10px;
     font-size: 1.1rem;
     text-align: center;
     text-transform: uppercase;
     letter-spacing: 0.2rem;
+    background: #1a1a1a;
+    color: #e0e0e0;
 }
 
 #roomCodeInput:focus {
     outline: none;
-    border-color: #667eea;
+    border-color: #5d6e2e;
+    background: #2a2a2a;
 }
 
 .room-active {
@@ -600,7 +603,7 @@ main {
     justify-content: space-between;
     align-items: center;
     padding: 1.5rem;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, #5d6e2e 0%, #4a5d23 100%);
     color: white;
     border-radius: 10px;
     margin-bottom: 2rem;
@@ -635,8 +638,8 @@ main {
 }
 
 .share-btn {
-    background: white;
-    color: #667eea;
+    background: #1a1a1a;
+    color: #7a8d52;
 }
 
 .leave-btn {
@@ -651,7 +654,7 @@ main {
 }
 
 .chat-container {
-    border: 2px solid #ddd;
+    border: 2px solid #444;
     border-radius: 10px;
     overflow: hidden;
     display: flex;
@@ -660,22 +663,22 @@ main {
 }
 
 .chat-header {
-    background: #f8f9ff;
+    background: #2a2a2a;
     padding: 1rem 1.5rem;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    border-bottom: 2px solid #ddd;
+    border-bottom: 2px solid #444;
 }
 
 .chat-header h4 {
     margin: 0;
-    color: #333;
+    color: #e0e0e0;
 }
 
 .chat-user-count {
     font-size: 0.9rem;
-    color: #666;
+    color: #b0b0b0;
 }
 
 .chat-messages {
@@ -683,7 +686,7 @@ main {
     padding: 1rem;
     overflow-y: auto;
     max-height: 350px;
-    background: #fafafa;
+    background: #121212;
     display: flex;
     flex-direction: column;
     gap: 1rem;
@@ -698,14 +701,14 @@ main {
 
 .chat-message.own {
     align-self: flex-end;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, #5d6e2e 0%, #4a5d23 100%);
     color: white;
 }
 
 .chat-message.other {
     align-self: flex-start;
-    background: #e0e0e0;
-    color: #333;
+    background: #2a2a2a;
+    color: #e0e0e0;
 }
 
 .message-author {
@@ -729,26 +732,29 @@ main {
     display: flex;
     gap: 0.5rem;
     padding: 1rem;
-    background: white;
-    border-top: 2px solid #ddd;
+    background: #1a1a1a;
+    border-top: 2px solid #444;
 }
 
 #chatInput {
     flex: 1;
     padding: 0.8rem;
-    border: 2px solid #ddd;
+    border: 2px solid #444;
     border-radius: 25px;
     font-size: 1rem;
+    background: #121212;
+    color: #e0e0e0;
 }
 
 #chatInput:focus {
     outline: none;
-    border-color: #667eea;
+    border-color: #5d6e2e;
+    background: #1a1a1a;
 }
 
 .send-btn {
     padding: 0.8rem 1.5rem;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, #5d6e2e 0%, #4a5d23 100%);
     color: white;
     border: none;
     border-radius: 25px;
@@ -762,7 +768,7 @@ main {
 }
 
 .room-status {
-    background: #e8ebff;
+    background: #2a2a2a;
     padding: 1rem;
     border-radius: 10px;
     margin-bottom: 1rem;
@@ -771,7 +777,7 @@ main {
 
 .room-status p {
     margin: 0;
-    color: #667eea;
+    color: #7a8d52;
     font-weight: 500;
 }
 
@@ -800,22 +806,22 @@ main {
 }
 
 .modal-content {
-    background: white;
+    background: #1a1a1a;
     padding: 2rem;
     border-radius: 10px;
     max-width: 500px;
     width: 90%;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
 }
 
 .modal-content h3 {
     margin-bottom: 1rem;
-    color: #333;
+    color: #e0e0e0;
 }
 
 .modal-content p {
     margin-bottom: 1rem;
-    color: #666;
+    color: #b0b0b0;
 }
 
 .modal-actions {
@@ -835,13 +841,13 @@ main {
 }
 
 .modal-btn:not(.cancel-btn) {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, #5d6e2e 0%, #4a5d23 100%);
     color: white;
 }
 
 .cancel-btn {
-    background: #ddd;
-    color: #333;
+    background: #444;
+    color: #e0e0e0;
 }
 
 .modal-btn:hover {
@@ -851,15 +857,18 @@ main {
 #nicknameInput {
     width: 100%;
     padding: 1rem;
-    border: 2px solid #ddd;
+    border: 2px solid #444;
     border-radius: 5px;
     font-size: 1rem;
     margin-top: 1rem;
+    background: #121212;
+    color: #e0e0e0;
 }
 
 #nicknameInput:focus {
     outline: none;
-    border-color: #667eea;
+    border-color: #5d6e2e;
+    background: #1a1a1a;
 }
 
 .share-link-container {
@@ -871,15 +880,16 @@ main {
 #shareLinkInput {
     flex: 1;
     padding: 0.8rem;
-    border: 2px solid #ddd;
+    border: 2px solid #444;
     border-radius: 5px;
     font-size: 0.9rem;
-    background: #f8f9ff;
+    background: #121212;
+    color: #e0e0e0;
 }
 
 .copy-btn {
     padding: 0.8rem 1.5rem;
-    background: #667eea;
+    background: #5d6e2e;
     color: white;
     border: none;
     border-radius: 5px;
@@ -889,22 +899,22 @@ main {
 }
 
 .copy-btn:hover {
-    background: #764ba2;
+    background: #7a8d52;
 }
 
 .about-section {
-    background: white;
+    background: #1a1a1a;
     padding: 3rem;
     border-radius: 10px;
     margin: 4rem 0;
-    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.5);
     text-align: center;
 }
 
 .about-section p {
     font-size: 1.1rem;
     line-height: 1.8;
-    color: #666;
+    color: #b0b0b0;
     max-width: 800px;
     margin: 0 auto;
 }
@@ -918,10 +928,24 @@ footer {
     margin-top: 4rem;
 }
 
+/* Mobile and Tablet Optimizations */
 @media (max-width: 768px) {
+    body {
+        -webkit-tap-highlight-color: transparent;
+        -webkit-touch-callout: none;
+    }
+
+    nav {
+        padding: 0 1rem;
+    }
+
     .nav-links {
-        gap: 1rem;
-        font-size: 0.9rem;
+        gap: 0.8rem;
+        font-size: 0.85rem;
+    }
+
+    .logo h1 {
+        font-size: 1.5rem;
     }
 
     .hero-content h2 {
@@ -932,8 +956,17 @@ footer {
         font-size: 1.2rem;
     }
 
+    main {
+        padding: 1rem;
+    }
+
+    .watch-section {
+        padding: 1.5rem;
+        margin: 2rem 0;
+    }
+
     .movies-container {
-        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
         gap: 1rem;
     }
 
@@ -951,39 +984,157 @@ footer {
 
     #videoPlayer {
         max-height: 50vh;
+        width: 100%;
+        height: auto;
     }
     
     .custom-controls {
         bottom: 50px;
-        padding: 0.3rem 0.6rem;
-        gap: 0.4rem;
+        padding: 0.4rem 0.7rem;
+        gap: 0.5rem;
         max-width: 95%;
+        left: 50%;
+        transform: translateX(-50%);
     }
     
     .control-btn {
-        padding: 0.5rem 0.8rem;
-        font-size: 0.75rem;
-        min-width: 55px;
+        padding: 0.6rem 0.9rem;
+        font-size: 0.8rem;
+        min-width: 60px;
         touch-action: manipulation;
+        -webkit-tap-highlight-color: rgba(255, 255, 255, 0.3);
+        user-select: none;
+    }
+
+    .subtitle-overlay {
+        bottom: 100px;
+        width: 95%;
+    }
+
+    .subtitle-text {
+        font-size: 1rem;
+        padding: 0.5rem;
     }
 
     .room-header {
         flex-direction: column;
         gap: 1rem;
         text-align: center;
+        padding: 1rem;
     }
 
     .room-share {
         width: 100%;
         justify-content: center;
+        flex-wrap: wrap;
+    }
+
+    .share-btn,
+    .leave-btn {
+        flex: 1;
+        min-width: 120px;
+        padding: 0.8rem 1rem;
+        font-size: 0.9rem;
     }
 
     .join-input-group {
         flex-direction: column;
+        gap: 0.8rem;
+    }
+
+    #roomCodeInput {
+        width: 100%;
+        padding: 0.9rem;
+        font-size: 1rem;
+    }
+
+    .room-btn {
+        width: 100%;
+        padding: 0.9rem 1.5rem;
+        font-size: 1rem;
+    }
+
+    .chat-container {
+        max-height: 400px;
+    }
+
+    .chat-messages {
+        max-height: 250px;
+        padding: 0.8rem;
     }
 
     .chat-message {
         max-width: 85%;
+        padding: 0.7rem 0.9rem;
+        font-size: 0.9rem;
+    }
+
+    .chat-input-container {
+        padding: 0.8rem;
+    }
+
+    #chatInput {
+        padding: 0.7rem;
+        font-size: 0.95rem;
+    }
+
+    .send-btn {
+        padding: 0.7rem 1.2rem;
+        font-size: 0.95rem;
+    }
+
+    .section-title {
+        font-size: 2rem;
+    }
+
+    .upload-title {
+        font-size: 1.3rem;
+    }
+}
+
+/* Tablet specific optimizations */
+@media (min-width: 769px) and (max-width: 1024px) {
+    #videoPlayer {
+        max-height: 60vh;
+    }
+
+    .custom-controls {
+        bottom: 55px;
+        padding: 0.5rem 0.8rem;
+    }
+
+    .control-btn {
+        padding: 0.5rem 0.9rem;
+        font-size: 0.85rem;
+    }
+
+    .movies-container {
+        grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    }
+}
+
+/* Touch device optimizations */
+@media (hover: none) and (pointer: coarse) {
+    .control-btn {
+        min-height: 44px; /* Minimum touch target size */
+        min-width: 60px;
+    }
+
+    .room-btn,
+    .share-btn,
+    .leave-btn,
+    .send-btn {
+        min-height: 44px;
+    }
+
+    #chatInput,
+    #roomCodeInput {
+        min-height: 44px;
+        font-size: 16px; /* Prevents zoom on iOS */
+    }
+
+    .upload-box {
+        min-height: 150px;
     }
 }
 

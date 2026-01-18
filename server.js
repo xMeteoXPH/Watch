@@ -319,13 +319,22 @@ io.on('connection', (socket) => {
     const room = rooms.get(roomCode);
 
     if (room && room.currentVideo) {
-      room.videoState = {
-        ...videoState,
-        lastUpdatedAt: new Date().toISOString()
-      };
+      // Only update if this state is newer than what we have
+      const currentTimestamp = room.videoState?.timestamp || 0;
+      const newTimestamp = videoState.timestamp || Date.now();
+      
+      if (newTimestamp >= currentTimestamp) {
+        room.videoState = {
+          ...videoState,
+          lastUpdatedAt: new Date().toISOString()
+        };
 
-      // Broadcast to others in room (not sender)
-      socket.to(roomCode).emit('video-state-update', room.videoState);
+        // Broadcast to others in room (not sender)
+        // Include timestamp for client-side ordering
+        socket.to(roomCode).emit('video-state-update', room.videoState);
+      } else {
+        console.log('Ignoring older state update:', newTimestamp, 'vs', currentTimestamp);
+      }
     }
   });
 
