@@ -1657,32 +1657,16 @@ function skipForward() {
     // Sync after seek completes - use longer delay to ensure seek is complete
     setTimeout(() => {
         const actualTime = videoPlayer.currentTime;
-        const actualIsPlaying = !videoPlayer.paused;
-        console.log('🎮 Custom control: Skipping forward to', actualTime, 'isPlaying:', actualIsPlaying);
+        console.log('🎮 Custom control: Skipping forward to', actualTime);
         
-        // Force update - bypass isSyncing check
-        const now = Date.now();
-        const videoState = {
-            videoId: currentVideo.id,
-            currentTime: actualTime,
-            action: 'seek',
-            isPlaying: actualIsPlaying || wasPlaying, // Use current state or preserved state
-            lastUpdatedBy: userId,
-            timestamp: now
-        };
-        
-        lastVideoState = videoState;
-        lastStateUpdateTime = now;
-        
-        // Send update - FREE-FOR-ALL: Works for uploader AND viewer
-        console.log('🚀 FREE-FOR-ALL: Emitting skip forward sync from user:', userId, 'to room:', currentRoom);
-        socket.emit('video-state-update', {
-            roomCode: currentRoom,
-            videoState: videoState
-        });
-        
-        console.log('✅ Skip forward sync sent by user:', userId, '(uploader OR viewer)');
-        console.log('   Video state:', JSON.stringify(videoState, null, 2));
+        // Use updateVideoStateInRoom - same as native events (works for uploader AND viewer)
+        const tempIsSyncing = isSyncing;
+        isSyncing = false; // Temporarily disable to allow updateVideoStateInRoom to work
+        updateVideoStateInRoom('seek', actualTime);
+        // Restore isSyncing after a tiny delay
+        setTimeout(() => {
+            isSyncing = tempIsSyncing;
+        }, 10);
         
         // Reset isSyncing after delay
         setTimeout(() => {
@@ -1727,32 +1711,16 @@ function skipBackward() {
     // Sync after seek completes - use longer delay to ensure seek is complete
     setTimeout(() => {
         const actualTime = videoPlayer.currentTime;
-        const actualIsPlaying = !videoPlayer.paused;
-        console.log('🎮 Custom control: Skipping backward to', actualTime, 'isPlaying:', actualIsPlaying);
+        console.log('🎮 Custom control: Skipping backward to', actualTime);
         
-        // Force update - bypass isSyncing check
-        const now = Date.now();
-        const videoState = {
-            videoId: currentVideo.id,
-            currentTime: actualTime,
-            action: 'seek',
-            isPlaying: actualIsPlaying || wasPlaying, // Use current state or preserved state
-            lastUpdatedBy: userId,
-            timestamp: now
-        };
-        
-        lastVideoState = videoState;
-        lastStateUpdateTime = now;
-        
-        // Send update - FREE-FOR-ALL: Works for uploader AND viewer
-        console.log('🚀 FREE-FOR-ALL: Emitting skip backward sync from user:', userId, 'to room:', currentRoom);
-        socket.emit('video-state-update', {
-            roomCode: currentRoom,
-            videoState: videoState
-        });
-        
-        console.log('✅ Skip backward sync sent by user:', userId, '(uploader OR viewer)');
-        console.log('   Video state:', JSON.stringify(videoState, null, 2));
+        // Use updateVideoStateInRoom - same as native events (works for uploader AND viewer)
+        const tempIsSyncing = isSyncing;
+        isSyncing = false; // Temporarily disable to allow updateVideoStateInRoom to work
+        updateVideoStateInRoom('seek', actualTime);
+        // Restore isSyncing after a tiny delay
+        setTimeout(() => {
+            isSyncing = tempIsSyncing;
+        }, 10);
         
         // Reset isSyncing after delay
         setTimeout(() => {
@@ -1804,32 +1772,17 @@ function togglePlayPause() {
                     // Sync immediately after play starts
                     setTimeout(() => {
                         const actualTime = videoPlayer.currentTime;
-                        const actualIsPlaying = !videoPlayer.paused;
-                        console.log('🎮 Sending play sync:', actualTime, 'isPlaying:', actualIsPlaying);
+                        console.log('🎮 Sending play sync:', actualTime);
                         
-                        // Force update - bypass isSyncing check
-                        const now = Date.now();
-                        const videoState = {
-                            videoId: currentVideo.id,
-                            currentTime: actualTime,
-                            action: 'play',
-                            isPlaying: actualIsPlaying,
-                            lastUpdatedBy: userId,
-                            timestamp: now
-                        };
-                        
-                        lastVideoState = videoState;
-                        lastStateUpdateTime = now;
-                        
-                        // Send update - FREE-FOR-ALL: Works for uploader AND viewer
-                        console.log('🚀 FREE-FOR-ALL: Emitting play sync from user:', userId, 'to room:', currentRoom);
-                        socket.emit('video-state-update', {
-                            roomCode: currentRoom,
-                            videoState: videoState
-                        });
-                        
-                        console.log('✅ Play sync sent by user:', userId, '(uploader OR viewer)');
-                        console.log('   Video state:', JSON.stringify(videoState, null, 2));
+                        // Use updateVideoStateInRoom - same as native events (works for uploader AND viewer)
+                        // Temporarily allow sync even though isSyncing is true
+                        const tempIsSyncing = isSyncing;
+                        isSyncing = false; // Temporarily disable to allow updateVideoStateInRoom to work
+                        updateVideoStateInRoom('play', actualTime);
+                        // Restore isSyncing after a tiny delay
+                        setTimeout(() => {
+                            isSyncing = tempIsSyncing;
+                        }, 10);
                         
                         // Reset isSyncing after a delay
                         setTimeout(() => {
@@ -1845,28 +1798,15 @@ function togglePlayPause() {
         } else {
             setTimeout(() => {
                 const actualTime = videoPlayer.currentTime;
-                const actualIsPlaying = !videoPlayer.paused;
-                const now = Date.now();
-                const videoState = {
-                    videoId: currentVideo.id,
-                    currentTime: actualTime,
-                    action: 'play',
-                    isPlaying: actualIsPlaying,
-                    lastUpdatedBy: userId,
-                    timestamp: now
-                };
+                console.log('🎮 Sending play sync (fallback):', actualTime);
                 
-                lastVideoState = videoState;
-                lastStateUpdateTime = now;
-                
-                // Send update - FREE-FOR-ALL: Works for uploader AND viewer
-                console.log('🚀 FREE-FOR-ALL: Emitting play sync (fallback) from user:', userId, 'to room:', currentRoom);
-                socket.emit('video-state-update', {
-                    roomCode: currentRoom,
-                    videoState: videoState
-                });
-                
-                console.log('✅ Play sync sent (fallback) by user:', userId, '(uploader OR viewer)');
+                // Use updateVideoStateInRoom - same as native events (works for uploader AND viewer)
+                const tempIsSyncing = isSyncing;
+                isSyncing = false;
+                updateVideoStateInRoom('play', actualTime);
+                setTimeout(() => {
+                    isSyncing = tempIsSyncing;
+                }, 10);
                 
                 setTimeout(() => {
                     isSyncing = previousIsSyncing;
@@ -1881,32 +1821,16 @@ function togglePlayPause() {
         // Sync immediately
         setTimeout(() => {
             const actualTime = videoPlayer.currentTime;
-            const actualIsPlaying = !videoPlayer.paused;
-            console.log('🎮 Sending pause sync:', actualTime, 'isPlaying:', actualIsPlaying);
+            console.log('🎮 Sending pause sync:', actualTime);
             
-            // Force update - bypass isSyncing check
-            const now = Date.now();
-            const videoState = {
-                videoId: currentVideo.id,
-                currentTime: actualTime,
-                action: 'pause',
-                isPlaying: actualIsPlaying,
-                lastUpdatedBy: userId,
-                timestamp: now
-            };
-            
-            lastVideoState = videoState;
-            lastStateUpdateTime = now;
-            
-            // Send update - FREE-FOR-ALL: Works for uploader AND viewer
-            console.log('🚀 FREE-FOR-ALL: Emitting pause sync from user:', userId, 'to room:', currentRoom);
-            socket.emit('video-state-update', {
-                roomCode: currentRoom,
-                videoState: videoState
-            });
-            
-            console.log('✅ Pause sync sent by user:', userId, '(uploader OR viewer)');
-            console.log('   Video state:', JSON.stringify(videoState, null, 2));
+            // Use updateVideoStateInRoom - same as native events (works for uploader AND viewer)
+            const tempIsSyncing = isSyncing;
+            isSyncing = false; // Temporarily disable to allow updateVideoStateInRoom to work
+            updateVideoStateInRoom('pause', actualTime);
+            // Restore isSyncing after a tiny delay
+            setTimeout(() => {
+                isSyncing = tempIsSyncing;
+            }, 10);
             
             // Reset isSyncing after a delay
             setTimeout(() => {
