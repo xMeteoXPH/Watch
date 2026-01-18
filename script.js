@@ -1508,6 +1508,8 @@ function skipForward() {
     const videoPlayer = document.getElementById('videoPlayer');
     if (!videoPlayer || !currentVideo) return;
     
+    // Capture play/pause state BEFORE changing time
+    const wasPlaying = !videoPlayer.paused;
     const newTime = Math.min(videoPlayer.currentTime + 10, videoPlayer.duration);
     
     // Set isSyncing to prevent the seeking event from syncing (we'll sync manually)
@@ -1521,12 +1523,18 @@ function skipForward() {
         if (currentRoom && socket && isConnected) {
             // Ensure we use the actual current time after seeking
             const actualTime = videoPlayer.currentTime;
-            updateVideoStateInRoom('seek', actualTime);
-        }
-        // Reset isSyncing after sync is sent
-        setTimeout(() => {
+            // Preserve the play/pause state that existed before seeking
+            // Use wasPlaying (state before change) to ensure consistency
+            updateVideoStateInRoom('seek', actualTime, wasPlaying);
+            // Reset isSyncing immediately after sending update
+            // The isSyncing flag was only needed to prevent duplicate syncs from native events
+            setTimeout(() => {
+                isSyncing = false;
+            }, 150); // Small delay to ensure native events have passed
+        } else {
+            // If not connected, reset immediately
             isSyncing = false;
-        }, 100);
+        }
     }, 50);
 }
 
@@ -1535,6 +1543,8 @@ function skipBackward() {
     const videoPlayer = document.getElementById('videoPlayer');
     if (!videoPlayer || !currentVideo) return;
     
+    // Capture play/pause state BEFORE changing time
+    const wasPlaying = !videoPlayer.paused;
     const newTime = Math.max(videoPlayer.currentTime - 10, 0);
     
     // Set isSyncing to prevent the seeking event from syncing (we'll sync manually)
@@ -1548,12 +1558,18 @@ function skipBackward() {
         if (currentRoom && socket && isConnected) {
             // Ensure we use the actual current time after seeking
             const actualTime = videoPlayer.currentTime;
-            updateVideoStateInRoom('seek', actualTime);
-        }
-        // Reset isSyncing after sync is sent
-        setTimeout(() => {
+            // Preserve the play/pause state that existed before seeking
+            // Use wasPlaying (state before change) to ensure consistency
+            updateVideoStateInRoom('seek', actualTime, wasPlaying);
+            // Reset isSyncing immediately after sending update
+            // The isSyncing flag was only needed to prevent duplicate syncs from native events
+            setTimeout(() => {
+                isSyncing = false;
+            }, 150); // Small delay to ensure native events have passed
+        } else {
+            // If not connected, reset immediately
             isSyncing = false;
-        }, 100);
+        }
     }, 50);
 }
 
@@ -1574,11 +1590,13 @@ function togglePlayPause() {
         setTimeout(() => {
             if (currentRoom && socket && isConnected) {
                 updateVideoStateInRoom('pause', videoPlayer.currentTime);
-            }
-            // Reset isSyncing after sync is sent
-            setTimeout(() => {
+                // Reset isSyncing after sending update
+                setTimeout(() => {
+                    isSyncing = false;
+                }, 150); // Small delay to ensure native events have passed
+            } else {
                 isSyncing = false;
-            }, 100);
+            }
         }, 50);
     } else {
         // Play and wait for it to start
@@ -1590,11 +1608,13 @@ function togglePlayPause() {
                     setTimeout(() => {
                         if (currentRoom && socket && isConnected && !videoPlayer.paused) {
                             updateVideoStateInRoom('play', videoPlayer.currentTime);
-                        }
-                        // Reset isSyncing after sync is sent
-                        setTimeout(() => {
+                            // Reset isSyncing after sending update
+                            setTimeout(() => {
+                                isSyncing = false;
+                            }, 150); // Small delay to ensure native events have passed
+                        } else {
                             isSyncing = false;
-                        }, 100);
+                        }
                     }, 100);
                 })
                 .catch(e => {
@@ -1606,11 +1626,13 @@ function togglePlayPause() {
             setTimeout(() => {
                 if (currentRoom && socket && isConnected && !videoPlayer.paused) {
                     updateVideoStateInRoom('play', videoPlayer.currentTime);
-                }
-                // Reset isSyncing after sync is sent
-                setTimeout(() => {
+                    // Reset isSyncing after sending update
+                    setTimeout(() => {
+                        isSyncing = false;
+                    }, 150); // Small delay to ensure native events have passed
+                } else {
                     isSyncing = false;
-                }, 100);
+                }
             }, 100);
         }
     }
@@ -1671,7 +1693,7 @@ function shareVideoToRoom(videoObject) {
 }
 
 // Update video state in room
-function updateVideoStateInRoom(action, time = null) {
+function updateVideoStateInRoom(action, time = null, overrideIsPlaying = null) {
     if (!currentRoom || !socket || !isConnected) {
         console.warn('Cannot update video state: not in room or not connected');
         return;
@@ -1699,7 +1721,10 @@ function updateVideoStateInRoom(action, time = null) {
     }
     
     const newTime = time !== null ? time : videoPlayer.currentTime;
-    const isPlaying = action === 'play' ? true : (action === 'pause' ? false : !videoPlayer.paused);
+    // Use override if provided, otherwise calculate based on action or current state
+    const isPlaying = overrideIsPlaying !== null 
+        ? overrideIsPlaying 
+        : (action === 'play' ? true : (action === 'pause' ? false : !videoPlayer.paused));
     
     const videoState = {
         videoId: currentVideo.id,
@@ -1870,9 +1895,16 @@ function applyPlayPauseState(videoState) {
         return;
     }
     
-    // Sync play/pause state
-    if (videoState.action === 'play' && videoPlayer.paused) {
-        console.log('Syncing play');
+    // Use isPlaying field to determine state, or infer from action
+    const shouldBePlaying = videoState.isPlaying !== undefined 
+        ? videoState.isPlaying 
+        : (videoState.action === 'play');
+    
+    console.log('Applying play/pause state. Action:', videoState.action, 'Should be playing:', shouldBePlaying, 'Currently paused:', videoPlayer.paused);
+    
+    // Sync play/pause state based on isPlaying field (works for all action types)
+    if (shouldBePlaying && videoPlayer.paused) {
+        console.log('Syncing play (video should be playing but is paused)');
         const playPromise = videoPlayer.play();
         if (playPromise !== undefined) {
             playPromise
@@ -1889,13 +1921,14 @@ function applyPlayPauseState(videoState) {
             updatePlayPauseButton();
             finishSync();
         }
-    } else if (videoState.action === 'pause' && !videoPlayer.paused) {
-        console.log('Syncing pause');
+    } else if (!shouldBePlaying && !videoPlayer.paused) {
+        console.log('Syncing pause (video should be paused but is playing)');
         videoPlayer.pause();
         updatePlayPauseButton();
         finishSync();
     } else {
-        // Already in correct state or not play/pause action
+        // Already in correct state
+        console.log('Play/pause state already correct');
         updatePlayPauseButton();
         finishSync();
     }
