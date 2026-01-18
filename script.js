@@ -1623,43 +1623,27 @@ function setupVideoSync() {
 // ============ CUSTOM VIDEO CONTROLS ============
 
 // DIRECT SYNC FUNCTION - ALWAYS WORKS (for custom controls)
-// This is a simpler, more direct version that guarantees sync for viewer controls
+// This bypasses all debouncing and state checks - just emits directly
+// CRITICAL: This must NOT be blocked by isSyncing or any other state
 function emitVideoStateDirect(action, time, isPlaying) {
-    console.log('🎯 emitVideoStateDirect CALLED');
+    console.log('🎯 emitVideoStateDirect CALLED - BYPASSING ALL CHECKS');
     console.log('  Parameters: action=', action, 'time=', time, 'isPlaying=', isPlaying);
-    console.log('  Checking requirements...');
-    console.log('    currentRoom:', currentRoom);
-    console.log('    socket:', !!socket, 'type:', typeof socket);
-    console.log('    isConnected:', isConnected);
-    console.log('    currentVideo:', !!currentVideo, 'id:', currentVideo?.id);
-    console.log('    userId:', userId);
+    console.log('  Current state: isSyncing=', isSyncing, 'lastStateUpdateTime=', lastStateUpdateTime);
     
-    if (!currentRoom) {
-        console.error('❌ CANNOT EMIT: Missing currentRoom');
+    // MINIMAL CHECKS ONLY - Don't block on isSyncing or debouncing
+    if (!currentRoom || !socket || !currentVideo || !userId) {
+        console.error('❌ CANNOT EMIT: Missing required data');
+        console.error('  currentRoom:', !!currentRoom, 'socket:', !!socket, 'currentVideo:', !!currentVideo, 'userId:', !!userId);
         return false;
     }
     
-    if (!socket) {
-        console.error('❌ CANNOT EMIT: Missing socket object');
+    if (!socket.connected && !isConnected) {
+        console.error('❌ CANNOT EMIT: Socket not connected');
+        console.error('  socket.connected:', socket?.connected, 'isConnected:', isConnected);
         return false;
     }
     
-    if (!isConnected) {
-        console.error('❌ CANNOT EMIT: Socket not connected, isConnected:', isConnected);
-        return false;
-    }
-    
-    if (!currentVideo) {
-        console.error('❌ CANNOT EMIT: Missing currentVideo');
-        return false;
-    }
-    
-    if (!userId) {
-        console.error('❌ CANNOT EMIT: Missing userId');
-        return false;
-    }
-    
-    console.log('✅ All requirements met, preparing emit...');
+    console.log('✅ Requirements met, emitting DIRECTLY (no debouncing, no isSyncing check)');
     
     const now = Date.now();
     const videoState = {
@@ -1671,6 +1655,7 @@ function emitVideoStateDirect(action, time, isPlaying) {
         timestamp: now
     };
     
+    // Update state AFTER successful emit
     lastVideoState = videoState;
     lastStateUpdateTime = now;
     
@@ -1679,22 +1664,15 @@ function emitVideoStateDirect(action, time, isPlaying) {
         videoState: videoState
     };
     
-    console.log('🚀 DIRECT EMIT: Preparing to send video-state-update');
-    console.log('  User:', userId);
-    console.log('  Room:', currentRoom);
-    console.log('  Action:', action);
-    console.log('  Time:', time);
-    console.log('  IsPlaying:', isPlaying);
-    console.log('  Emit data:', JSON.stringify(emitData, null, 2));
-    console.log('  Socket object:', socket);
-    console.log('  Socket.connected:', socket?.connected);
-    console.log('  Socket.id:', socket?.id);
+    console.log('🚀 DIRECT EMIT: Sending NOW (bypassing debouncing):');
+    console.log('  User:', userId, 'Room:', currentRoom, 'Action:', action);
+    console.log('  Data:', JSON.stringify(emitData, null, 2));
     
     try {
-        console.log('📤 Calling socket.emit now...');
+        // CRITICAL: Emit directly, don't check isSyncing or debouncing here
         socket.emit('video-state-update', emitData);
-        console.log('✅ DIRECT EMIT: socket.emit() called successfully');
-        console.log('   If server receives this, you should see "SERVER RECEIVED" in server logs');
+        console.log('✅ DIRECT EMIT: Successfully called socket.emit()');
+        console.log('   Check server logs for "SERVER RECEIVED" message');
         return true;
     } catch (error) {
         console.error('❌ DIRECT EMIT ERROR:', error);
@@ -1741,14 +1719,14 @@ function skipForward() {
         const actualIsPlaying = !videoPlayer.paused || wasPlaying;
         console.log('🎮 Custom control: Skipping forward to', actualTime, 'isPlaying:', actualIsPlaying);
         
-        // DIRECT EMIT - guaranteed to work for viewer
+        // DIRECT EMIT - guaranteed to work for viewer (NOT blocked by isSyncing)
         emitVideoStateDirect('seek', actualTime, actualIsPlaying);
         
-        // Reset isSyncing after delay
+        // Force reset isSyncing (ensure it's always reset)
         setTimeout(() => {
-            isSyncing = previousIsSyncing; // Restore previous state or false
-            console.log('isSyncing reset after skip forward');
-        }, 400);
+            isSyncing = false; // Force reset to false
+            console.log('✅ isSyncing force reset to false after skip forward');
+        }, 500);
     }, 150);
 }
 
@@ -1790,14 +1768,14 @@ function skipBackward() {
         const actualIsPlaying = !videoPlayer.paused || wasPlaying;
         console.log('🎮 Custom control: Skipping backward to', actualTime, 'isPlaying:', actualIsPlaying);
         
-        // DIRECT EMIT - guaranteed to work for viewer
+        // DIRECT EMIT - guaranteed to work for viewer (NOT blocked by isSyncing)
         emitVideoStateDirect('seek', actualTime, actualIsPlaying);
         
-        // Reset isSyncing after delay
+        // Force reset isSyncing (ensure it's always reset)
         setTimeout(() => {
-            isSyncing = previousIsSyncing; // Restore previous state or false
-            console.log('isSyncing reset after skip backward');
-        }, 400);
+            isSyncing = false; // Force reset to false
+            console.log('✅ isSyncing force reset to false after skip backward');
+        }, 500);
     }, 150);
 }
 
@@ -1846,14 +1824,15 @@ function togglePlayPause() {
                         const actualIsPlaying = !videoPlayer.paused;
                         console.log('🎮 Sending play sync:', actualTime, 'isPlaying:', actualIsPlaying);
                         
-                        // DIRECT EMIT - guaranteed to work for viewer
-                        emitVideoStateDirect('play', actualTime, actualIsPlaying);
+                        // DIRECT EMIT - guaranteed to work for viewer (NOT blocked by isSyncing)
+                        const emitSuccess = emitVideoStateDirect('play', actualTime, actualIsPlaying);
+                        console.log('Emit result:', emitSuccess);
                         
-                        // Reset isSyncing after a delay
+                        // Reset isSyncing after a delay (ensure it's always reset)
                         setTimeout(() => {
-                            isSyncing = previousIsSyncing;
-                            console.log('isSyncing reset after play');
-                        }, 400);
+                            isSyncing = false; // Force reset to false, don't use previousIsSyncing
+                            console.log('✅ isSyncing force reset to false after play');
+                        }, 500);
                     }, 100);
                 })
                 .catch(e => {
@@ -1866,12 +1845,14 @@ function togglePlayPause() {
                 const actualIsPlaying = !videoPlayer.paused;
                 console.log('🎮 Sending play sync (fallback):', actualTime, 'isPlaying:', actualIsPlaying);
                 
-                // DIRECT EMIT - guaranteed to work for viewer
+                // DIRECT EMIT - guaranteed to work for viewer (NOT blocked by isSyncing)
                 emitVideoStateDirect('play', actualTime, actualIsPlaying);
                 
+                // Force reset isSyncing
                 setTimeout(() => {
-                    isSyncing = previousIsSyncing;
-                }, 400);
+                    isSyncing = false;
+                    console.log('✅ isSyncing force reset to false after play (fallback)');
+                }, 500);
             }, 100);
         }
     } else {
@@ -1885,14 +1866,14 @@ function togglePlayPause() {
             const actualIsPlaying = !videoPlayer.paused; // Should be false for pause
             console.log('🎮 Sending pause sync:', actualTime, 'isPlaying:', actualIsPlaying);
             
-            // DIRECT EMIT - guaranteed to work for viewer
+            // DIRECT EMIT - guaranteed to work for viewer (NOT blocked by isSyncing)
             emitVideoStateDirect('pause', actualTime, actualIsPlaying);
             
-            // Reset isSyncing after a delay
+            // Force reset isSyncing (ensure it's always reset)
             setTimeout(() => {
-                isSyncing = previousIsSyncing;
-                console.log('isSyncing reset after pause');
-            }, 400);
+                isSyncing = false; // Force reset to false
+                console.log('✅ isSyncing force reset to false after pause');
+            }, 500);
         }, 50);
     }
 }
