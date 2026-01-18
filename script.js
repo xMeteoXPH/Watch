@@ -1549,11 +1549,15 @@ function setupVideoSync() {
         // Update subtitles on every time update
         updateSubtitles(videoPlayer.currentTime);
         
+        // Only sync timeupdate if video is playing and not currently syncing
+        // This is just for time drift correction, not for play/pause state
         if (currentRoom && !isSyncing && !videoPlayer.paused) {
-            // Only update every 0.5 seconds to avoid too many updates
+            // Only update every 1 second to avoid too many updates
             const now = Date.now();
-            if (!lastVideoState || now - lastVideoState.timestamp > 500) {
-                updateVideoStateInRoom('timeupdate', videoPlayer.currentTime);
+            if (!lastVideoState || now - lastVideoState.timestamp > 1000) {
+                // For timeupdate, explicitly pass isPlaying as true since video is playing
+                // This ensures we don't accidentally pause the video on the receiving end
+                updateVideoStateInRoom('timeupdate', videoPlayer.currentTime, true);
             }
         }
     };
@@ -1935,8 +1939,8 @@ function updateVideoStateInRoom(action, time = null, overrideIsPlaying = null) {
             return;
         }
     } else if (action === 'timeupdate') {
-        // For timeupdate, only send every 300ms
-        if (now - lastStateUpdateTime < 300) {
+        // For timeupdate, only send every 1000ms (1 second) to reduce frequency
+        if (now - lastStateUpdateTime < 1000) {
             return;
         }
     }
@@ -2095,9 +2099,26 @@ function applyVideoState(videoState) {
     isSyncing = true;
     console.log('Applying video state:', videoState, 'Action:', videoState.action);
     
-    // Always sync time on seek actions
-    // For play/pause, only sync time if difference is significant
     const timeDiff = Math.abs(videoPlayer.currentTime - videoState.currentTime);
+    
+    if (videoState.action === 'timeupdate') {
+        // For timeupdate actions, ONLY sync time, NOT play/pause state
+        // This prevents stuttering when video is playing
+        const timeThreshold = 1.0; // Only sync if difference is more than 1 second
+        if (timeDiff > timeThreshold) {
+            console.log(`Syncing timeupdate: ${videoPlayer.currentTime.toFixed(2)} -> ${videoState.currentTime.toFixed(2)} (diff: ${timeDiff.toFixed(2)}s)`);
+            videoPlayer.currentTime = videoState.currentTime;
+            // Don't apply play/pause state for timeupdate - just finish sync
+            setTimeout(() => {
+                isSyncing = false;
+                updatePlayPauseButton(); // Update button UI but don't change playback state
+            }, 50);
+        } else {
+            // Time is close enough, just finish without changing anything
+            isSyncing = false;
+        }
+        return; // Early return - don't apply play/pause state for timeupdate
+    }
     
     if (videoState.action === 'seek') {
         // Always sync time for seek actions, even if difference is small
