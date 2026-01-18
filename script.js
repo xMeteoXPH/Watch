@@ -42,7 +42,8 @@ const syncV2 = {
     roomHasVideo: false,
     lastEmitAt: 0,
     lastEmitKey: '',
-    lastSeekEmitAt: 0
+    lastSeekEmitAt: 0,
+    suppressNativeUntil: 0
 };
 
 // Generate unique user ID
@@ -118,8 +119,16 @@ function setupDragAndDrop() {
 
     // Click to upload (single source of truth: programmatic click)
     uploadBox.addEventListener('click', function() {
+        // Prevent double-open on mobile (touch -> click quirks)
+        if (uploadBox.dataset.pickerOpen === 'true') return;
+        uploadBox.dataset.pickerOpen = 'true';
+
         const fileInput = document.getElementById('fileInput');
         if (fileInput) fileInput.click();
+
+        setTimeout(() => {
+            uploadBox.dataset.pickerOpen = 'false';
+        }, 1200);
     });
 }
 
@@ -1651,6 +1660,9 @@ function applyVideoControlStateV2(state) {
     // Update version first to prevent re-entrancy loops
     if (typeof state.version === 'number') syncV2.version = state.version;
 
+    // Suppress emitting from native events triggered by this apply
+    syncV2.suppressNativeUntil = Date.now() + 1200;
+
     // If we don't have the right video loaded yet, queue the state
     if (!currentVideo || currentVideo.id !== state.videoId) {
         syncV2.pendingState = state;
@@ -1670,22 +1682,36 @@ function applyVideoControlStateV2(state) {
         }
 
         const shouldPlay = !!state.isPlaying;
+
+        // Release apply lock when the media actually reaches the target state,
+        // not on a fixed short timer (mobile Safari can be slow to fire events).
+        const release = () => {
+            if (!syncV2.applying) return;
+            syncV2.applying = false;
+            updatePlayPauseButton();
+        };
+
+        const onPlaying = () => release();
+        const onPause = () => release();
+        videoPlayer.addEventListener('playing', onPlaying, { once: true });
+        videoPlayer.addEventListener('pause', onPause, { once: true });
+
+        // Fallback: always release after 1500ms in case events don't fire
+        setTimeout(release, 1500);
+
         if (!shouldPlay) {
             videoPlayer.pause();
         } else {
             const p = videoPlayer.play();
             if (p && typeof p.catch === 'function') {
                 p.catch(() => {
-                    // Autoplay restrictions can block remote play on iOS; pause/play from mobile -> PC still works.
+                    // Remote play can be blocked on iOS if not user-initiated.
+                    // We still release via timeout.
                 });
             }
         }
     } finally {
-        // Release apply lock after a short delay so native events don't echo back
-        setTimeout(() => {
-            syncV2.applying = false;
-            updatePlayPauseButton();
-        }, 150);
+        // Do not force-release here; release is handled by events/timeout above.
     }
 }
 
@@ -1727,23 +1753,28 @@ function setupVideoSyncV2() {
     });
 
     // Local -> room (only when user-initiated; ignore when applying remote state)
-    const emitIfUser = (action) => {
+    const emitIfUser = (action, e) => {
         if (!syncV2.enabled) return;
         if (syncV2.applying) return;
+        if (Date.now() < syncV2.suppressNativeUntil) return;
         if (!currentRoom || !socket || !isConnected || !currentVideo) return;
+        // Only emit for REAL user actions from native controls (prevents loops/duplicates).
+        if (e && e.isTrusted === false) return;
         emitVideoControlV2(action, videoPlayer.currentTime);
     };
 
-    videoPlayer.addEventListener('play', () => emitIfUser('play'));
-    videoPlayer.addEventListener('pause', () => emitIfUser('pause'));
+    videoPlayer.addEventListener('play', (e) => emitIfUser('play', e));
+    videoPlayer.addEventListener('pause', (e) => emitIfUser('pause', e));
 
     // Seek (native scrubbing)
-    videoPlayer.addEventListener('seeked', () => {
+    videoPlayer.addEventListener('seeked', (e) => {
         if (syncV2.applying) return;
+        if (Date.now() < syncV2.suppressNativeUntil) return;
+        if (e && e.isTrusted === false) return;
         const now = Date.now();
         if (now - syncV2.lastSeekEmitAt < 250) return; // debounce
         syncV2.lastSeekEmitAt = now;
-        emitIfUser('seek');
+        emitIfUser('seek', e);
     });
 
     // Keep UI in sync
@@ -2209,6 +2240,9 @@ function togglePlayPause() {
     if (!videoPlayer) return;
 
     const wasPaused = videoPlayer.paused;
+    const now = Date.now();
+    // Suppress native events caused by our programmatic play/pause
+    syncV2.suppressNativeUntil = now + 800;
 
     // Local action first (user gesture -> required for iOS Safari)
     if (wasPaused) {
@@ -2216,7 +2250,7 @@ function togglePlayPause() {
         if (p && typeof p.catch === 'function') {
             p.catch(() => {});
         }
-        // Emit v2 after a tiny delay (play event may fire multiple times; v2 emit is debounced)
+        // Emit v2 after a tiny delay (lets currentTime settle)
         setTimeout(() => {
             if (!syncV2.applying && currentRoom && socket && isConnected && currentVideo) {
                 emitVideoControlV2('play', videoPlayer.currentTime);

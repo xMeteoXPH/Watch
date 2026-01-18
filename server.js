@@ -484,7 +484,8 @@ io.on('connection', (socket) => {
       updatedAt: new Date().toISOString()
     };
 
-    io.to(roomCode).emit('video-control', {
+    // Broadcast to everyone EXCEPT the sender (sender already applied locally)
+    socket.to(roomCode).emit('video-control', {
       state: room.videoState,
       protocol: 2
     });
