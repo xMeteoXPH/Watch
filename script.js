@@ -1696,15 +1696,18 @@ function skipForward() {
         return;
     }
     
-    // FORCE SYNC: Temporarily clear isSyncing to ensure sync works
+    // VIEWER CONTROL: Force sync to work - clear isSyncing
     const wasSyncing = isSyncing;
     isSyncing = false;
+    
+    console.log('🎮 VIEWER CONTROL: skipForward called by userId:', userId);
     
     const newTime = Math.min(videoPlayer.currentTime + 10, videoPlayer.duration);
     videoPlayer.currentTime = newTime;
     
     setTimeout(() => {
         if (currentRoom) {
+            console.log('🎮 VIEWER: Calling updateVideoStateInRoom for skip forward');
             updateVideoStateInRoom('seek', videoPlayer.currentTime);
         }
         isSyncing = wasSyncing;
@@ -1726,15 +1729,18 @@ function skipBackward() {
         return;
     }
     
-    // FORCE SYNC: Temporarily clear isSyncing to ensure sync works
+    // VIEWER CONTROL: Force sync to work - clear isSyncing
     const wasSyncing = isSyncing;
     isSyncing = false;
+    
+    console.log('🎮 VIEWER CONTROL: skipBackward called by userId:', userId);
     
     const newTime = Math.max(videoPlayer.currentTime - 10, 0);
     videoPlayer.currentTime = newTime;
     
     setTimeout(() => {
         if (currentRoom) {
+            console.log('🎮 VIEWER: Calling updateVideoStateInRoom for skip backward');
             updateVideoStateInRoom('seek', videoPlayer.currentTime);
         }
         isSyncing = wasSyncing;
@@ -1761,17 +1767,23 @@ function togglePlayPause() {
     
     const wasPaused = videoPlayer.paused;
     
-    // FORCE SYNC: Temporarily clear isSyncing to ensure sync works
+    // VIEWER CONTROL: Force sync to work - clear isSyncing
     const wasSyncing = isSyncing;
     isSyncing = false;
     
+    console.log('🎮 VIEWER CONTROL: togglePlayPause called by userId:', userId);
+    console.log('   currentRoom:', currentRoom, 'socket:', !!socket, 'isConnected:', isConnected);
+    console.log('   currentVideo:', !!currentVideo, 'id:', currentVideo?.id);
+    
     if (wasPaused) {
         // Will play
+        console.log('🎮 VIEWER: Playing video - will sync');
         const playPromise = videoPlayer.play();
         if (playPromise !== undefined) {
             playPromise.then(() => {
                 setTimeout(() => {
                     if (!videoPlayer.paused && currentRoom) {
+                        console.log('🎮 VIEWER: Calling updateVideoStateInRoom for play');
                         updateVideoStateInRoom('play', videoPlayer.currentTime);
                     }
                     isSyncing = wasSyncing;
@@ -1783,6 +1795,7 @@ function togglePlayPause() {
         } else {
             setTimeout(() => {
                 if (!videoPlayer.paused && currentRoom) {
+                    console.log('🎮 VIEWER: Calling updateVideoStateInRoom for play (fallback)');
                     updateVideoStateInRoom('play', videoPlayer.currentTime);
                 }
                 isSyncing = wasSyncing;
@@ -1790,9 +1803,11 @@ function togglePlayPause() {
         }
     } else {
         // Will pause
+        console.log('🎮 VIEWER: Pausing video - will sync');
         videoPlayer.pause();
         setTimeout(() => {
             if (videoPlayer.paused && currentRoom) {
+                console.log('🎮 VIEWER: Calling updateVideoStateInRoom for pause');
                 updateVideoStateInRoom('pause', videoPlayer.currentTime);
             }
             isSyncing = wasSyncing;
@@ -1892,8 +1907,12 @@ function updateVideoStateInRoom(action, time = null, overrideIsPlaying = null) {
     const now = Date.now();
     if (action === 'play' || action === 'pause') {
         // For play/pause, only send if enough time has passed or if it's a different action
-        if (now - lastStateUpdateTime < 200 && lastVideoState && lastVideoState.action === action) {
-            console.log('⏭️ Debouncing rapid play/pause update');
+        // BUT: Always allow different actions (play after pause, or pause after play)
+        const timeSinceLastUpdate = now - lastStateUpdateTime;
+        const isSameAction = lastVideoState && lastVideoState.action === action;
+        if (timeSinceLastUpdate < 200 && isSameAction) {
+            console.log('⏭️ Debouncing rapid play/pause update (same action within 200ms)');
+            console.log('   Time since last:', timeSinceLastUpdate, 'ms, Same action:', isSameAction);
             return;
         }
     } else if (action === 'timeupdate') {
