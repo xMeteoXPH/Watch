@@ -104,9 +104,21 @@ function setupDragAndDrop() {
 
 // Handle file selection from input
 function handleFileSelect(event) {
+    // Prevent multiple triggers
+    if (event.target.dataset.processing === 'true') {
+        console.log('⚠️ File input already processing, ignoring duplicate event');
+        return;
+    }
+    
     const file = event.target.files[0];
     if (file) {
+        event.target.dataset.processing = 'true';
         handleFileUpload(file);
+        
+        // Reset after a delay to allow new uploads
+        setTimeout(() => {
+            event.target.dataset.processing = 'false';
+        }, 1000);
     }
 }
 
@@ -220,54 +232,35 @@ async function handleFileUpload(file) {
         // Display file info
         displayFileInfo(videoObject);
 
-        // Load the video in player immediately for uploader
-        // Don't sync to room yet - we'll do that after video loads
-        loadVideo(videoObject, false);
+        // CRITICAL: Share video to room IMMEDIATELY before loading
+        // This ensures other devices know about the video before play actions happen
+        if (currentRoom && socket && isConnected) {
+            console.log('📤 IMMEDIATELY sharing video to room before loading');
+            shareVideoToRoom(videoObject);
+        }
         
-        // Wait for video to start loading before sharing to room
+        // Load the video in player immediately for uploader
+        // Set syncToRoom to true so it's shared again after loading (redundancy)
+        loadVideo(videoObject, true);
+        
+        // Also share again after video loads as backup (in case socket wasn't ready)
         const videoPlayer = document.getElementById('videoPlayer');
-        if (videoPlayer) {
-            const shareWhenReady = () => {
-                if (videoPlayer.readyState >= 1 || videoPlayer.networkState >= 1) {
-                    // Video has started loading
-                    if (currentRoom) {
-                        console.log('Video ready, sharing to room');
-                        shareVideoToRoom(videoObject);
-                    }
-                } else {
-                    // Wait a bit more
-                    setTimeout(shareWhenReady, 200);
+        if (videoPlayer && currentRoom) {
+            // Share again once video metadata is loaded
+            const shareOnceReady = () => {
+                if (currentRoom && socket && isConnected) {
+                    console.log('📤 Re-sharing video to room after metadata loaded');
+                    shareVideoToRoom(videoObject);
                 }
             };
             
-            // Try immediately if ready
-            if (videoPlayer.readyState >= 1) {
-                setTimeout(() => {
-                    if (currentRoom) {
-                        shareVideoToRoom(videoObject);
-                    }
-                }, 300);
-            } else {
-                // Wait for loadstart event
-                videoPlayer.addEventListener('loadstart', () => {
-                    setTimeout(() => {
-                        if (currentRoom) {
-                            shareVideoToRoom(videoObject);
-                        }
-                    }, 500);
-                }, { once: true });
-                
-                // Fallback timeout
-                setTimeout(() => {
-                    if (currentRoom) {
-                        shareVideoToRoom(videoObject);
-                    }
-                }, 1500);
-            }
-        } else {
-            // Fallback if video player not found
+            videoPlayer.addEventListener('loadedmetadata', shareOnceReady, { once: true });
+            videoPlayer.addEventListener('canplay', shareOnceReady, { once: true });
+            
+            // Fallback timeout
             setTimeout(() => {
-                if (currentRoom) {
+                if (currentRoom && socket && isConnected) {
+                    console.log('📤 Fallback: Sharing video to room');
                     shareVideoToRoom(videoObject);
                 }
             }, 1000);
@@ -286,8 +279,14 @@ async function handleFileUpload(file) {
         alert(`Failed to upload video: ${error.message}`);
     }
 
-    // Reset file input
-    document.getElementById('fileInput').value = '';
+    // Reset file input after a short delay to prevent immediate re-trigger
+    setTimeout(() => {
+        const fileInput = document.getElementById('fileInput');
+        if (fileInput) {
+            fileInput.value = '';
+            fileInput.dataset.processing = 'false';
+        }
+    }, 500);
 }
 
 // Display file information
@@ -997,7 +996,19 @@ function showRoomInterface() {
     
     if (fileInput && !fileInput.hasAttribute('data-setup')) {
         setupDragAndDrop();
-        fileInput.setAttribute('data-setup', 'true');
+        
+        // Remove any existing change listeners to prevent duplicates
+        const newInput = fileInput.cloneNode(true);
+        fileInput.parentNode.replaceChild(newInput, fileInput);
+        
+        // Get fresh reference
+        const freshInput = document.getElementById('fileInput');
+        
+        // Add single change event listener
+        freshInput.addEventListener('change', handleFileSelect, { once: false });
+        
+        freshInput.setAttribute('data-setup', 'true');
+        console.log('✅ File input setup complete - single change listener attached');
     }
     
     if (videoPlayer && !videoPlayer.hasAttribute('data-sync-setup')) {
