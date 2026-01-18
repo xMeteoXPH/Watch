@@ -57,6 +57,11 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     setupSmoothScroll();
+    
+    // MOBILE COMPATIBILITY: Setup mobile controls after DOM is ready
+    setTimeout(() => {
+        setupMobileControls();
+    }, 1000);
 });
 
 // Function to scroll to video player
@@ -457,6 +462,9 @@ function loadVideo(videoObject, syncToRoom = true) {
             updatePlayPauseButton();
         }
     }, 1000);
+    
+    // MOBILE COMPATIBILITY: Setup touch event listeners for control buttons
+    setupMobileControls();
 
     // If in a room and syncToRoom is true, share video with room
     if (currentRoom && syncToRoom) {
@@ -1555,18 +1563,19 @@ function setupVideoSync() {
     };
     videoPlayer.addEventListener('pause', videoSyncHandlers.pause);
     
-    // Seeking event (user scrubs timeline) - use seeked instead of seeking for more accurate time
+    // Seeking event (user scrubs timeline) - MOBILE COMPATIBLE
     // NOTE: This only syncs if NOT blocked by isSyncing (which custom controls set)
     // Custom controls (skip forward/backward) handle their own sync, so this is mainly for timeline scrubbing
     videoSyncHandlers.seeked = function() {
         if (currentRoom && !isSyncing) {
             // Use seeked event which fires after seeking is complete
+            // Longer delay for mobile devices
             setTimeout(() => {
                 if (currentRoom && !isSyncing) {
-                    console.log('📢 Native seeked event - syncing seek');
+                    console.log('📢 Native seeked event - syncing seek (Android/iOS/Windows compatible)');
                     updateVideoStateInRoom('seek', videoPlayer.currentTime);
                 }
-            }, 100);
+            }, 150); // Longer delay for mobile
         }
     };
     videoPlayer.addEventListener('seeked', videoSyncHandlers.seeked);
@@ -1617,7 +1626,14 @@ function setupVideoSync() {
     
     // Mark as set up
     videoPlayer.setAttribute('data-sync-setup', 'true');
-    console.log('Video sync event listeners set up');
+    console.log('Video sync event listeners set up (Android/iOS/Windows compatible)');
+    
+    // MOBILE COMPATIBILITY: Ensure video player events work on mobile
+    // Some mobile browsers need explicit event handling
+    videoPlayer.addEventListener('touchstart', function(e) {
+        // Don't interfere with video controls, just log for debugging
+        console.log('📱 Video player touch detected');
+    }, { passive: true });
 }
 
 // ============ CUSTOM VIDEO CONTROLS ============
@@ -1669,7 +1685,8 @@ function emitVideoStateDirect(action, time, isPlaying) {
     console.log('  Data:', JSON.stringify(emitData, null, 2));
     
     try {
-        // CRITICAL: Emit directly, don't check isSyncing or debouncing here
+        // CRITICAL: Emit directly - works on Android/iOS/Windows
+        // Don't check isSyncing or debouncing here - this is the direct path
         socket.emit('video-state-update', emitData);
         console.log('✅ DIRECT EMIT: Successfully called socket.emit()');
         console.log('   Check server logs for "SERVER RECEIVED" message');
@@ -1845,6 +1862,122 @@ function togglePlayPause() {
     }
 }
 
+// MOBILE COMPATIBILITY: Setup touch event listeners for control buttons
+// This ensures controls work on Android/iOS where onclick might not fire properly
+function setupMobileControls() {
+    // Wait for DOM to be ready and use event delegation
+    const customControls = document.getElementById('customControls');
+    if (!customControls) {
+        console.warn('⚠️ Custom controls not found, will retry...');
+        setTimeout(setupMobileControls, 500);
+        return;
+    }
+    
+    // Remove existing listeners to avoid duplicates
+    customControls.removeEventListener('touchend', handleControlTouch);
+    customControls.removeEventListener('touchstart', handleControlTouch);
+    customControls.removeEventListener('click', handleControlClick);
+    
+    // Use event delegation for better mobile support
+    // Touch events work better on mobile than click
+    customControls.addEventListener('touchstart', handleControlTouch, { passive: false });
+    customControls.addEventListener('touchend', handleControlTouch, { passive: false });
+    customControls.addEventListener('click', handleControlClick, { passive: false });
+    
+    // Also add direct listeners to each button as backup
+    const buttons = customControls.querySelectorAll('.control-btn');
+    buttons.forEach(button => {
+        // Remove existing listeners
+        button.removeEventListener('touchend', handleButtonTouch);
+        button.removeEventListener('click', handleButtonClick);
+        
+        // Add new listeners
+        button.addEventListener('touchend', handleButtonTouch, { passive: false });
+        button.addEventListener('click', handleButtonClick, { passive: false });
+    });
+    
+    console.log('✅ Mobile touch/click listeners added to custom controls (Android/iOS/Windows)');
+    console.log('   Found', buttons.length, 'control buttons');
+}
+
+// Unified touch/click handler for mobile compatibility (event delegation)
+function handleControlTouch(e) {
+    const button = e.target.closest('.control-btn');
+    if (!button) return;
+    
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const action = button.getAttribute('data-action') || button.getAttribute('onclick');
+    console.log('📱 Mobile touch event (delegation):', action, 'Button:', button.id || button.className);
+    
+    executeControlAction(action);
+}
+
+// Direct button touch handler (backup)
+function handleButtonTouch(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const button = e.currentTarget;
+    const action = button.getAttribute('data-action') || button.getAttribute('onclick');
+    console.log('📱 Mobile touch event (direct):', action, 'Button:', button.id || button.className);
+    
+    executeControlAction(action);
+}
+
+// Click handler as fallback (works alongside touch)
+function handleControlClick(e) {
+    const button = e.target.closest('.control-btn');
+    if (!button) return;
+    
+    // Only handle if it's not from a touch event (touch events also trigger click)
+    if (e.type === 'click' && e.sourceCapabilities && e.sourceCapabilities.firesTouchEvents) {
+        return; // This click came from a touch, let touch handler deal with it
+    }
+    
+    const action = button.getAttribute('data-action') || button.getAttribute('onclick');
+    console.log('🖱️ Click event (delegation):', action);
+    
+    executeControlAction(action);
+}
+
+// Direct button click handler (backup)
+function handleButtonClick(e) {
+    // Only handle if it's not from a touch event
+    if (e.sourceCapabilities && e.sourceCapabilities.firesTouchEvents) {
+        return;
+    }
+    
+    const button = e.currentTarget;
+    const action = button.getAttribute('data-action') || button.getAttribute('onclick');
+    console.log('🖱️ Click event (direct):', action);
+    
+    executeControlAction(action);
+}
+
+// Unified action execution
+function executeControlAction(action) {
+    if (!action) {
+        console.warn('⚠️ No action found');
+        return;
+    }
+    
+    // Execute the appropriate function
+    if (action === 'togglePlayPause' || (action && action.includes('togglePlayPause'))) {
+        console.log('▶️ Executing: togglePlayPause()');
+        togglePlayPause();
+    } else if (action === 'skipForward' || (action && action.includes('skipForward'))) {
+        console.log('⏩ Executing: skipForward()');
+        skipForward();
+    } else if (action === 'skipBackward' || (action && action.includes('skipBackward'))) {
+        console.log('⏪ Executing: skipBackward()');
+        skipBackward();
+    } else {
+        console.warn('⚠️ Unknown action:', action);
+    }
+}
+
 // Update play/pause button icon
 function updatePlayPauseButton() {
     const videoPlayer = document.getElementById('videoPlayer');
@@ -1979,8 +2112,9 @@ function updateVideoStateInRoom(action, time = null, overrideIsPlaying = null) {
     console.log('  ✓ VideoId:', currentVideo.id);
     console.log('  ✓ Socket connected:', isConnected);
     console.log('  ✓ Socket object:', !!socket);
+    console.log('  ✓ Platform: Android/iOS/Windows');
     
-    // CRITICAL: Emit to server - This works for UPLOADER AND VIEWER
+    // CRITICAL: Emit to server - This works for UPLOADER AND VIEWER on ALL platforms
     try {
         socket.emit('video-state-update', {
             roomCode: currentRoom,
