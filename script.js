@@ -1681,116 +1681,68 @@ function emitVideoStateDirect(action, time, isPlaying) {
     }
 }
 
-// Skip forward 10 seconds
+// Skip forward 10 seconds - VIEWER CONTROLS: Use same sync method as uploader
 function skipForward() {
     const videoPlayer = document.getElementById('videoPlayer');
     if (!videoPlayer || !currentVideo) {
         console.warn('Cannot skip forward: no video player or video');
-        console.warn('  videoPlayer:', !!videoPlayer, 'currentVideo:', !!currentVideo);
         return;
     }
     
     if (!currentRoom || !socket || !isConnected) {
         console.warn('Cannot skip forward: not in room or not connected');
-        console.warn('  currentRoom:', currentRoom, 'socket:', !!socket, 'isConnected:', isConnected);
-        // Still allow local skip even if not connected
         const newTime = Math.min(videoPlayer.currentTime + 10, videoPlayer.duration);
         videoPlayer.currentTime = newTime;
         return;
     }
     
-    // FREE-FOR-ALL: Explicit check that we can sync (uploader OR viewer)
-    console.log('🎮 FREE-FOR-ALL: skipForward() called by user:', userId, 'in room:', currentRoom);
-    
-    // Capture play/pause state BEFORE changing time
-    const wasPlaying = !videoPlayer.paused;
     const newTime = Math.min(videoPlayer.currentTime + 10, videoPlayer.duration);
-    
-    // Set isSyncing to prevent native seeking event from also syncing
-    const previousIsSyncing = isSyncing;
-    isSyncing = true;
-    
-    // Change the time
     videoPlayer.currentTime = newTime;
     
-    // Sync after seek completes - use longer delay to ensure seek is complete
+    // Use SAME sync method as uploader's native seeked event
     setTimeout(() => {
-        const actualTime = videoPlayer.currentTime;
-        const actualIsPlaying = !videoPlayer.paused || wasPlaying;
-        console.log('🎮 Custom control: Skipping forward to', actualTime, 'isPlaying:', actualIsPlaying);
-        
-        // DIRECT EMIT - guaranteed to work for viewer (NOT blocked by isSyncing)
-        emitVideoStateDirect('seek', actualTime, actualIsPlaying);
-        
-        // Force reset isSyncing (ensure it's always reset)
-        setTimeout(() => {
-            isSyncing = false; // Force reset to false
-            console.log('✅ isSyncing force reset to false after skip forward');
-        }, 500);
+        if (currentRoom) {
+            updateVideoStateInRoom('seek', videoPlayer.currentTime);
+        }
     }, 150);
 }
 
-// Skip backward 10 seconds
+// Skip backward 10 seconds - VIEWER CONTROLS: Use same sync method as uploader
 function skipBackward() {
     const videoPlayer = document.getElementById('videoPlayer');
     if (!videoPlayer || !currentVideo) {
         console.warn('Cannot skip backward: no video player or video');
-        console.warn('  videoPlayer:', !!videoPlayer, 'currentVideo:', !!currentVideo);
         return;
     }
     
     if (!currentRoom || !socket || !isConnected) {
         console.warn('Cannot skip backward: not in room or not connected');
-        console.warn('  currentRoom:', currentRoom, 'socket:', !!socket, 'isConnected:', isConnected);
-        // Still allow local skip even if not connected
         const newTime = Math.max(videoPlayer.currentTime - 10, 0);
         videoPlayer.currentTime = newTime;
         return;
     }
     
-    // FREE-FOR-ALL: Explicit check that we can sync (uploader OR viewer)
-    console.log('🎮 FREE-FOR-ALL: skipBackward() called by user:', userId, 'in room:', currentRoom);
-    
-    // Capture play/pause state BEFORE changing time
-    const wasPlaying = !videoPlayer.paused;
     const newTime = Math.max(videoPlayer.currentTime - 10, 0);
-    
-    // Set isSyncing to prevent native seeking event from also syncing
-    const previousIsSyncing = isSyncing;
-    isSyncing = true;
-    
-    // Change the time
     videoPlayer.currentTime = newTime;
     
-    // Sync after seek completes - use longer delay to ensure seek is complete
+    // Use SAME sync method as uploader's native seeked event
     setTimeout(() => {
-        const actualTime = videoPlayer.currentTime;
-        const actualIsPlaying = !videoPlayer.paused || wasPlaying;
-        console.log('🎮 Custom control: Skipping backward to', actualTime, 'isPlaying:', actualIsPlaying);
-        
-        // DIRECT EMIT - guaranteed to work for viewer (NOT blocked by isSyncing)
-        emitVideoStateDirect('seek', actualTime, actualIsPlaying);
-        
-        // Force reset isSyncing (ensure it's always reset)
-        setTimeout(() => {
-            isSyncing = false; // Force reset to false
-            console.log('✅ isSyncing force reset to false after skip backward');
-        }, 500);
+        if (currentRoom) {
+            updateVideoStateInRoom('seek', videoPlayer.currentTime);
+        }
     }, 150);
 }
 
-// Toggle play/pause
+// Toggle play/pause - VIEWER CONTROLS: Use same sync method as uploader
 function togglePlayPause() {
     const videoPlayer = document.getElementById('videoPlayer');
     if (!videoPlayer || !currentVideo) {
         console.warn('Cannot toggle play/pause: no video player or video');
-        console.warn('  videoPlayer:', !!videoPlayer, 'currentVideo:', !!currentVideo);
         return;
     }
     
     if (!currentRoom || !socket || !isConnected) {
         console.warn('Cannot toggle play/pause: not in room or not connected');
-        console.warn('  currentRoom:', currentRoom, 'socket:', !!socket, 'isConnected:', isConnected);
         // Still allow local play/pause even if not connected
         if (!videoPlayer.paused) {
             videoPlayer.pause();
@@ -1800,80 +1752,35 @@ function togglePlayPause() {
         return;
     }
     
-    // FREE-FOR-ALL: Explicit check that we can sync (uploader OR viewer)
-    console.log('🎮 FREE-FOR-ALL: togglePlayPause() called by user:', userId, 'in room:', currentRoom);
-    
-    // Capture state before change
     const wasPaused = videoPlayer.paused;
-    const currentTime = videoPlayer.currentTime;
     
-    // Set isSyncing to prevent native events from also syncing
-    const previousIsSyncing = isSyncing;
-    isSyncing = true;
-    
+    // Don't set isSyncing - let updateVideoStateInRoom handle it like uploader does
     if (wasPaused) {
         // Will play
-        console.log('🎮 Custom control: Playing video');
         const playPromise = videoPlayer.play();
         if (playPromise !== undefined) {
-            playPromise
-                .then(() => {
-                    // Sync immediately after play starts
-                    setTimeout(() => {
-                        const actualTime = videoPlayer.currentTime;
-                        const actualIsPlaying = !videoPlayer.paused;
-                        console.log('🎮 Sending play sync:', actualTime, 'isPlaying:', actualIsPlaying);
-                        
-                        // DIRECT EMIT - guaranteed to work for viewer (NOT blocked by isSyncing)
-                        const emitSuccess = emitVideoStateDirect('play', actualTime, actualIsPlaying);
-                        console.log('Emit result:', emitSuccess);
-                        
-                        // Reset isSyncing after a delay (ensure it's always reset)
-                        setTimeout(() => {
-                            isSyncing = false; // Force reset to false, don't use previousIsSyncing
-                            console.log('✅ isSyncing force reset to false after play');
-                        }, 500);
-                    }, 100);
-                })
-                .catch(e => {
-                    console.error('Play failed:', e);
-                    isSyncing = previousIsSyncing;
-                });
+            playPromise.then(() => {
+                // Use SAME sync method as uploader's native events
+                setTimeout(() => {
+                    if (!videoPlayer.paused && currentRoom) {
+                        updateVideoStateInRoom('play', videoPlayer.currentTime);
+                    }
+                }, 100);
+            }).catch(e => console.error('Play failed:', e));
         } else {
             setTimeout(() => {
-                const actualTime = videoPlayer.currentTime;
-                const actualIsPlaying = !videoPlayer.paused;
-                console.log('🎮 Sending play sync (fallback):', actualTime, 'isPlaying:', actualIsPlaying);
-                
-                // DIRECT EMIT - guaranteed to work for viewer (NOT blocked by isSyncing)
-                emitVideoStateDirect('play', actualTime, actualIsPlaying);
-                
-                // Force reset isSyncing
-                setTimeout(() => {
-                    isSyncing = false;
-                    console.log('✅ isSyncing force reset to false after play (fallback)');
-                }, 500);
+                if (!videoPlayer.paused && currentRoom) {
+                    updateVideoStateInRoom('play', videoPlayer.currentTime);
+                }
             }, 100);
         }
     } else {
-        // Will pause
-        console.log('🎮 Custom control: Pausing video');
+        // Will pause - use SAME sync method as uploader
         videoPlayer.pause();
-        
-        // Sync immediately
         setTimeout(() => {
-            const actualTime = videoPlayer.currentTime;
-            const actualIsPlaying = !videoPlayer.paused; // Should be false for pause
-            console.log('🎮 Sending pause sync:', actualTime, 'isPlaying:', actualIsPlaying);
-            
-            // DIRECT EMIT - guaranteed to work for viewer (NOT blocked by isSyncing)
-            emitVideoStateDirect('pause', actualTime, actualIsPlaying);
-            
-            // Force reset isSyncing (ensure it's always reset)
-            setTimeout(() => {
-                isSyncing = false; // Force reset to false
-                console.log('✅ isSyncing force reset to false after pause');
-            }, 500);
+            if (videoPlayer.paused && currentRoom) {
+                updateVideoStateInRoom('pause', videoPlayer.currentTime);
+            }
         }, 50);
     }
 }
