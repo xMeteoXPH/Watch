@@ -2009,95 +2009,57 @@ function setupMobileControls() {
             return;
         }
         
-        console.log('📱 Found all control buttons, attaching universal handlers...');
-        console.log('   - Play/Pause button:', !!playPauseBtn);
-        console.log('   - Skip Forward button:', !!skipForwardBtn);
-        console.log('   - Skip Backward button:', !!skipBackwardBtn);
-        
-        // Remove ALL existing listeners to avoid duplicates
-        // Clone buttons to remove all event listeners (preserves IDs)
-        const playBtnParent = playPauseBtn.parentNode;
-        const forwardBtnParent = skipForwardBtn.parentNode;
-        const backwardBtnParent = skipBackwardBtn.parentNode;
-        
-        const newPlayPause = playPauseBtn.cloneNode(true);
-        newPlayPause.id = 'playPauseBtn'; // Ensure ID is preserved
-        playBtnParent.replaceChild(newPlayPause, playPauseBtn);
-        
-        const newSkipForward = skipForwardBtn.cloneNode(true);
-        newSkipForward.id = 'skipForwardBtn'; // Ensure ID is preserved
-        forwardBtnParent.replaceChild(newSkipForward, skipForwardBtn);
-        
-        const newSkipBackward = skipBackwardBtn.cloneNode(true);
-        newSkipBackward.id = 'skipBackwardBtn'; // Ensure ID is preserved
-        backwardBtnParent.replaceChild(newSkipBackward, skipBackwardBtn);
-        
-        // Get fresh references after cloning
-        const playBtn = document.getElementById('playPauseBtn');
-        const forwardBtn = document.getElementById('skipForwardBtn');
-        const backwardBtn = document.getElementById('skipBackwardBtn');
-        
-        if (!playBtn || !forwardBtn || !backwardBtn) {
-            console.error('❌ Failed to get button references after cloning');
+        // Prevent re-attaching handlers (setupMobileControls can run multiple times)
+        if (playPauseBtn.hasAttribute('data-controls-wired')) {
             return;
         }
-        
-        // Universal handler that works on ALL platforms
-        const createUniversalHandler = (action) => {
+        playPauseBtn.setAttribute('data-controls-wired', 'true');
+        skipForwardBtn.setAttribute('data-controls-wired', 'true');
+        skipBackwardBtn.setAttribute('data-controls-wired', 'true');
+
+        console.log('📱 Found all control buttons, wiring SINGLE event per button (prevents double-tap pause bug)...');
+
+        // One handler per action, with a long debounce to stop touchend+ghost-click issues.
+        const createHandler = (action) => {
             let lastTriggerTime = 0;
             return (e) => {
-                // Prevent double-firing (debounce within 200ms)
                 const now = Date.now();
-                if (now - lastTriggerTime < 200) {
-                    console.log('⏭️ Debouncing rapid trigger:', action);
-                    return false;
+                if (now - lastTriggerTime < 800) {
+                    return;
                 }
                 lastTriggerTime = now;
-                
-                e.preventDefault();
-                e.stopPropagation();
-                e.stopImmediatePropagation();
-                console.log('📱 Universal handler triggered:', action, 'Event type:', e.type);
-                console.log('   Button:', e.target.id || e.target.className);
-                
-                // Call the handler function
-                try {
-                    handleControlButtonClick(action);
-                } catch (error) {
-                    console.error('❌ Error in handleControlButtonClick:', error);
-                }
-                return false;
+
+                if (e && typeof e.preventDefault === 'function') e.preventDefault();
+                if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
+
+                handleControlButtonClick(action);
             };
         };
-        
-        // Attach MULTIPLE event types for maximum compatibility
-        // Touch events for mobile (Android, iOS, iPad)
-        const playHandler = createUniversalHandler('togglePlayPause');
-        const forwardHandler = createUniversalHandler('skipForward');
-        const backwardHandler = createUniversalHandler('skipBackward');
-        
-        // Touch events (mobile)
-        playBtn.addEventListener('touchend', playHandler, { passive: false, capture: true });
-        forwardBtn.addEventListener('touchend', forwardHandler, { passive: false, capture: true });
-        backwardBtn.addEventListener('touchend', backwardHandler, { passive: false, capture: true });
-        
-        // Click events (desktop + mobile fallback)
-        playBtn.addEventListener('click', playHandler, { capture: true });
-        forwardBtn.addEventListener('click', forwardHandler, { capture: true });
-        backwardBtn.addEventListener('click', backwardHandler, { capture: true });
-        
-        // Mouse events (desktop)
-        playBtn.addEventListener('mousedown', playHandler, { capture: true });
-        forwardBtn.addEventListener('mousedown', forwardHandler, { capture: true });
-        backwardBtn.addEventListener('mousedown', backwardHandler, { capture: true });
-        
-        // Pointer events (modern browsers)
-        playBtn.addEventListener('pointerup', playHandler, { capture: true });
-        forwardBtn.addEventListener('pointerup', forwardHandler, { capture: true });
-        backwardBtn.addEventListener('pointerup', backwardHandler, { capture: true });
-        
-        console.log('✅ Universal event handlers attached to ALL control buttons');
-        console.log('   Works on: Desktop, Android, iOS, iPad');
+
+        const playHandler = createHandler('togglePlayPause');
+        const forwardHandler = createHandler('skipForward');
+        const backwardHandler = createHandler('skipBackward');
+
+        // Prefer Pointer Events when available (modern iOS Safari/Chrome/Android)
+        const usePointer = typeof window !== 'undefined' && 'PointerEvent' in window;
+        const useTouch = !usePointer && typeof window !== 'undefined' && ('ontouchend' in window || navigator.maxTouchPoints > 0);
+
+        const bind = (el, handler) => {
+            if (usePointer) {
+                el.addEventListener('pointerup', handler, { capture: true });
+            } else if (useTouch) {
+                // touchend only; DO NOT also bind click (prevents ghost double-trigger)
+                el.addEventListener('touchend', handler, { passive: false, capture: true });
+            } else {
+                el.addEventListener('click', handler, { capture: true });
+            }
+        };
+
+        bind(playPauseBtn, playHandler);
+        bind(skipForwardBtn, forwardHandler);
+        bind(skipBackwardBtn, backwardHandler);
+
+        console.log('✅ Control buttons wired (single event type).', usePointer ? 'Using pointerup.' : (useTouch ? 'Using touchend.' : 'Using click.'));
     };
     
     // Try to set up immediately
