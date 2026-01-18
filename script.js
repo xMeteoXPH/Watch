@@ -1656,7 +1656,8 @@ function skipForward() {
             videoState: videoState
         });
         
-        console.log('✅ Skip forward sync sent');
+        console.log('✅ Skip forward sync sent by user:', userId);
+        console.log('   Video state:', JSON.stringify(videoState, null, 2));
         
         // Reset isSyncing after delay
         setTimeout(() => {
@@ -1719,7 +1720,8 @@ function skipBackward() {
             videoState: videoState
         });
         
-        console.log('✅ Skip backward sync sent');
+        console.log('✅ Skip backward sync sent by user:', userId);
+        console.log('   Video state:', JSON.stringify(videoState, null, 2));
         
         // Reset isSyncing after delay
         setTimeout(() => {
@@ -1788,7 +1790,8 @@ function togglePlayPause() {
                             videoState: videoState
                         });
                         
-                        console.log('✅ Play sync sent');
+                        console.log('✅ Play sync sent by user:', userId);
+                        console.log('   Video state:', JSON.stringify(videoState, null, 2));
                         
                         // Reset isSyncing after a delay
                         setTimeout(() => {
@@ -1860,7 +1863,8 @@ function togglePlayPause() {
                 videoState: videoState
             });
             
-            console.log('✅ Pause sync sent');
+            console.log('✅ Pause sync sent by user:', userId);
+            console.log('   Video state:', JSON.stringify(videoState, null, 2));
             
             // Reset isSyncing after a delay
             setTimeout(() => {
@@ -2062,18 +2066,27 @@ function applyVideoState(videoState) {
         const isImportantAction = videoState.action === 'play' || videoState.action === 'pause' || videoState.action === 'seek';
         
         if (isImportantAction) {
-            // Important actions (play/pause/seek) should override timeupdate sync
-            console.log('Important action received while syncing, processing immediately. Action:', videoState.action);
-            // Clear any pending timeupdate
+            // Important actions (play/pause/seek) MUST override timeupdate sync immediately
+            console.log('🚨 IMPORTANT: Action received while syncing, forcing immediate processing. Action:', videoState.action, 'from user:', videoState.lastUpdatedBy);
+            // Clear any pending timeupdate - user actions have priority
             pendingStateUpdate = null;
-            // Continue to apply the important action - it will handle isSyncing internally
-            // We just need to process it after a small delay to let current sync finish
+            // Force immediate processing by temporarily clearing isSyncing
+            const wasSyncing = isSyncing;
+            isSyncing = false; // Temporarily clear to allow immediate processing
+            
+            // Process immediately (very small delay to let any current operation finish)
             setTimeout(() => {
-                applyVideoState(videoState);
-            }, 100);
+                // Re-check that we should still apply (might have changed)
+                if (videoState.lastUpdatedBy !== userId && videoState.lastUpdatedBy) {
+                    console.log('🚨 Applying important action immediately:', videoState.action);
+                    // Call applyVideoState directly but skip the isSyncing check by temporarily clearing it
+                    applyVideoState(videoState);
+                }
+                // Don't restore isSyncing immediately - let applyVideoState manage it
+            }, 30); // Very short delay
             return;
         } else {
-            // For timeupdate while syncing, queue it
+            // For timeupdate while syncing, queue it (low priority)
             console.log('Already syncing, queuing timeupdate. Timestamp:', videoState.timestamp);
             pendingStateUpdate = videoState;
             
