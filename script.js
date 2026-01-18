@@ -1513,11 +1513,13 @@ function setupVideoSync() {
     videoSyncHandlers.play = function() {
         if (currentRoom && !isSyncing) {
             // Small delay to get accurate currentTime after play starts
+            // This handles both custom controls and native play events
             setTimeout(() => {
                 if (!videoPlayer.paused && currentRoom && !isSyncing) {
-                    updateVideoStateInRoom('play');
+                    console.log('📢 Native play event - syncing play');
+                    updateVideoStateInRoom('play', videoPlayer.currentTime);
                 }
-            }, 50);
+            }, 100);
         }
     };
     videoPlayer.addEventListener('play', videoSyncHandlers.play);
@@ -1526,7 +1528,13 @@ function setupVideoSync() {
     videoSyncHandlers.pause = function() {
         if (currentRoom && !isSyncing) {
             // For pause, we can sync immediately since paused state is instant
-            updateVideoStateInRoom('pause');
+            // This handles both custom controls and native pause events
+            setTimeout(() => {
+                if (currentRoom && !isSyncing && videoPlayer.paused) {
+                    console.log('📢 Native pause event - syncing pause');
+                    updateVideoStateInRoom('pause', videoPlayer.currentTime);
+                }
+            }, 50);
         }
     };
     videoPlayer.addEventListener('pause', videoSyncHandlers.pause);
@@ -2048,26 +2056,37 @@ function applyVideoState(videoState) {
     }
     lastReceivedStateTimestamp = Math.max(lastReceivedStateTimestamp, videoState.timestamp || Date.now());
     
-    // If we're currently syncing, queue this update but process it after a short delay
-    // This ensures all updates eventually get applied
+    // If we're currently syncing, check if this is a more important action that should override
+    // Play/pause/seek actions are more important than timeupdate and should be processed immediately
     if (isSyncing) {
-        console.log('Already syncing, queuing update. Action:', videoState.action, 'Timestamp:', videoState.timestamp);
-        // Queue the update if we're syncing, but also set a timeout to process it
-        pendingStateUpdate = videoState;
+        const isImportantAction = videoState.action === 'play' || videoState.action === 'pause' || videoState.action === 'seek';
         
-        // Process pending update after a delay, even if isSyncing is still true
-        setTimeout(() => {
-            if (pendingStateUpdate && pendingStateUpdate === videoState) {
-                console.log('Processing queued update after delay. Action:', videoState.action);
-                pendingStateUpdate = null;
-                // Force apply even if still syncing
-                const wasSyncing = isSyncing;
-                isSyncing = false;
+        if (isImportantAction) {
+            // Important actions (play/pause/seek) should override timeupdate sync
+            console.log('Important action received while syncing, processing immediately. Action:', videoState.action);
+            // Clear any pending timeupdate
+            pendingStateUpdate = null;
+            // Continue to apply the important action - it will handle isSyncing internally
+            // We just need to process it after a small delay to let current sync finish
+            setTimeout(() => {
                 applyVideoState(videoState);
-                isSyncing = wasSyncing;
-            }
-        }, 500);
-        return;
+            }, 100);
+            return;
+        } else {
+            // For timeupdate while syncing, queue it
+            console.log('Already syncing, queuing timeupdate. Timestamp:', videoState.timestamp);
+            pendingStateUpdate = videoState;
+            
+            // Process pending update after a delay, even if isSyncing is still true
+            setTimeout(() => {
+                if (pendingStateUpdate && pendingStateUpdate === videoState) {
+                    console.log('Processing queued timeupdate after delay');
+                    pendingStateUpdate = null;
+                    applyVideoState(videoState);
+                }
+            }, 500);
+            return;
+        }
     }
     
     const videoPlayer = document.getElementById('videoPlayer');
@@ -2103,7 +2122,14 @@ function applyVideoState(videoState) {
     
     if (videoState.action === 'timeupdate') {
         // For timeupdate actions, ONLY sync time, NOT play/pause state
-        // This prevents stuttering when video is playing
+        // IMPORTANT: If video is paused, don't apply timeupdate - respect the pause state
+        if (videoPlayer.paused) {
+            console.log('Ignoring timeupdate - video is paused, respecting pause state');
+            isSyncing = false;
+            return; // Don't sync timeupdate when paused - let user control their pause
+        }
+        
+        // Only sync time if video is playing and difference is significant
         const timeThreshold = 1.0; // Only sync if difference is more than 1 second
         if (timeDiff > timeThreshold) {
             console.log(`Syncing timeupdate: ${videoPlayer.currentTime.toFixed(2)} -> ${videoState.currentTime.toFixed(2)} (diff: ${timeDiff.toFixed(2)}s)`);
