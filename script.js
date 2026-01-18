@@ -1681,133 +1681,133 @@ function emitVideoStateDirect(action, time, isPlaying) {
     }
 }
 
-// Skip forward 10 seconds - VIEWER CONTROLS: Force sync to work (bypass isSyncing)
+// Skip forward 10 seconds - WORKS FOR UPLOADER AND VIEWER
 function skipForward() {
+    console.log('🎮 skipForward() CALLED');
+    
     const videoPlayer = document.getElementById('videoPlayer');
     if (!videoPlayer || !currentVideo) {
-        console.warn('Cannot skip forward: no video player or video');
+        console.error('❌ No videoPlayer or currentVideo');
         return;
     }
     
     if (!currentRoom || !socket || !isConnected) {
-        console.warn('Cannot skip forward: not in room or not connected');
-        const newTime = Math.min(videoPlayer.currentTime + 10, videoPlayer.duration);
-        videoPlayer.currentTime = newTime;
+        console.warn('⚠️ Not in room - skipping locally only');
+        videoPlayer.currentTime = Math.min(videoPlayer.currentTime + 10, videoPlayer.duration);
         return;
     }
     
-    // VIEWER CONTROL: Force sync to work - clear isSyncing
+    console.log('✅ All checks passed, proceeding with sync');
+    
+    // Clear isSyncing
     const wasSyncing = isSyncing;
     isSyncing = false;
-    
-    console.log('🎮 VIEWER CONTROL: skipForward called by userId:', userId);
     
     const newTime = Math.min(videoPlayer.currentTime + 10, videoPlayer.duration);
     videoPlayer.currentTime = newTime;
     
     setTimeout(() => {
-        if (currentRoom) {
-            console.log('🎮 VIEWER: Calling updateVideoStateInRoom for skip forward');
+        if (currentRoom && currentVideo) {
+            console.log('📤 SYNCING: Calling updateVideoStateInRoom for SKIP FORWARD');
             updateVideoStateInRoom('seek', videoPlayer.currentTime);
         }
         isSyncing = wasSyncing;
     }, 150);
 }
 
-// Skip backward 10 seconds - VIEWER CONTROLS: Force sync to work (bypass isSyncing)
+// Skip backward 10 seconds - WORKS FOR UPLOADER AND VIEWER
 function skipBackward() {
+    console.log('🎮 skipBackward() CALLED');
+    
     const videoPlayer = document.getElementById('videoPlayer');
     if (!videoPlayer || !currentVideo) {
-        console.warn('Cannot skip backward: no video player or video');
+        console.error('❌ No videoPlayer or currentVideo');
         return;
     }
     
     if (!currentRoom || !socket || !isConnected) {
-        console.warn('Cannot skip backward: not in room or not connected');
-        const newTime = Math.max(videoPlayer.currentTime - 10, 0);
-        videoPlayer.currentTime = newTime;
+        console.warn('⚠️ Not in room - skipping locally only');
+        videoPlayer.currentTime = Math.max(videoPlayer.currentTime - 10, 0);
         return;
     }
     
-    // VIEWER CONTROL: Force sync to work - clear isSyncing
+    console.log('✅ All checks passed, proceeding with sync');
+    
+    // Clear isSyncing
     const wasSyncing = isSyncing;
     isSyncing = false;
-    
-    console.log('🎮 VIEWER CONTROL: skipBackward called by userId:', userId);
     
     const newTime = Math.max(videoPlayer.currentTime - 10, 0);
     videoPlayer.currentTime = newTime;
     
     setTimeout(() => {
-        if (currentRoom) {
-            console.log('🎮 VIEWER: Calling updateVideoStateInRoom for skip backward');
+        if (currentRoom && currentVideo) {
+            console.log('📤 SYNCING: Calling updateVideoStateInRoom for SKIP BACKWARD');
             updateVideoStateInRoom('seek', videoPlayer.currentTime);
         }
         isSyncing = wasSyncing;
     }, 150);
 }
 
-// Toggle play/pause - VIEWER CONTROLS: Force sync to work (bypass isSyncing)
+// Toggle play/pause - WORKS FOR UPLOADER AND VIEWER
 function togglePlayPause() {
+    console.log('🎮 togglePlayPause() CALLED');
+    
     const videoPlayer = document.getElementById('videoPlayer');
-    if (!videoPlayer || !currentVideo) {
-        console.warn('Cannot toggle play/pause: no video player or video');
+    if (!videoPlayer) {
+        console.error('❌ No videoPlayer element');
         return;
     }
     
+    if (!currentVideo) {
+        console.error('❌ No currentVideo');
+        return;
+    }
+    
+    // Check if we can sync
     if (!currentRoom || !socket || !isConnected) {
-        console.warn('Cannot toggle play/pause: not in room or not connected');
-        if (!videoPlayer.paused) {
-            videoPlayer.pause();
-        } else {
+        console.warn('⚠️ Not in room or not connected - playing locally only');
+        // Still allow local play/pause
+        if (videoPlayer.paused) {
             videoPlayer.play();
+        } else {
+            videoPlayer.pause();
         }
         return;
     }
     
+    console.log('✅ All checks passed, proceeding with sync');
+    console.log('   Room:', currentRoom, 'Socket:', !!socket, 'Connected:', isConnected);
+    console.log('   Video:', currentVideo?.id, 'User:', userId);
+    
     const wasPaused = videoPlayer.paused;
     
-    // VIEWER CONTROL: Force sync to work - clear isSyncing
+    // Clear isSyncing to ensure sync works
     const wasSyncing = isSyncing;
     isSyncing = false;
     
-    console.log('🎮 VIEWER CONTROL: togglePlayPause called by userId:', userId);
-    console.log('   currentRoom:', currentRoom, 'socket:', !!socket, 'isConnected:', isConnected);
-    console.log('   currentVideo:', !!currentVideo, 'id:', currentVideo?.id);
-    
     if (wasPaused) {
         // Will play
-        console.log('🎮 VIEWER: Playing video - will sync');
-        const playPromise = videoPlayer.play();
-        if (playPromise !== undefined) {
-            playPromise.then(() => {
-                setTimeout(() => {
-                    if (!videoPlayer.paused && currentRoom) {
-                        console.log('🎮 VIEWER: Calling updateVideoStateInRoom for play');
-                        updateVideoStateInRoom('play', videoPlayer.currentTime);
-                    }
-                    isSyncing = wasSyncing;
-                }, 100);
-            }).catch(e => {
-                console.error('Play failed:', e);
-                isSyncing = wasSyncing;
-            });
-        } else {
+        console.log('▶️ Playing video and syncing...');
+        videoPlayer.play().then(() => {
             setTimeout(() => {
-                if (!videoPlayer.paused && currentRoom) {
-                    console.log('🎮 VIEWER: Calling updateVideoStateInRoom for play (fallback)');
+                if (!videoPlayer.paused && currentRoom && currentVideo) {
+                    console.log('📤 SYNCING: Calling updateVideoStateInRoom for PLAY');
                     updateVideoStateInRoom('play', videoPlayer.currentTime);
                 }
                 isSyncing = wasSyncing;
             }, 100);
-        }
+        }).catch(e => {
+            console.error('Play failed:', e);
+            isSyncing = wasSyncing;
+        });
     } else {
         // Will pause
-        console.log('🎮 VIEWER: Pausing video - will sync');
+        console.log('⏸️ Pausing video and syncing...');
         videoPlayer.pause();
         setTimeout(() => {
-            if (videoPlayer.paused && currentRoom) {
-                console.log('🎮 VIEWER: Calling updateVideoStateInRoom for pause');
+            if (videoPlayer.paused && currentRoom && currentVideo) {
+                console.log('📤 SYNCING: Calling updateVideoStateInRoom for PAUSE');
                 updateVideoStateInRoom('pause', videoPlayer.currentTime);
             }
             isSyncing = wasSyncing;
