@@ -1625,11 +1625,41 @@ function setupVideoSync() {
 // DIRECT SYNC FUNCTION - ALWAYS WORKS (for custom controls)
 // This is a simpler, more direct version that guarantees sync for viewer controls
 function emitVideoStateDirect(action, time, isPlaying) {
-    if (!currentRoom || !socket || !isConnected || !currentVideo) {
-        console.warn('❌ Cannot emit video state: missing requirements');
-        console.warn('  currentRoom:', !!currentRoom, 'socket:', !!socket, 'isConnected:', isConnected, 'currentVideo:', !!currentVideo);
+    console.log('🎯 emitVideoStateDirect CALLED');
+    console.log('  Parameters: action=', action, 'time=', time, 'isPlaying=', isPlaying);
+    console.log('  Checking requirements...');
+    console.log('    currentRoom:', currentRoom);
+    console.log('    socket:', !!socket, 'type:', typeof socket);
+    console.log('    isConnected:', isConnected);
+    console.log('    currentVideo:', !!currentVideo, 'id:', currentVideo?.id);
+    console.log('    userId:', userId);
+    
+    if (!currentRoom) {
+        console.error('❌ CANNOT EMIT: Missing currentRoom');
         return false;
     }
+    
+    if (!socket) {
+        console.error('❌ CANNOT EMIT: Missing socket object');
+        return false;
+    }
+    
+    if (!isConnected) {
+        console.error('❌ CANNOT EMIT: Socket not connected, isConnected:', isConnected);
+        return false;
+    }
+    
+    if (!currentVideo) {
+        console.error('❌ CANNOT EMIT: Missing currentVideo');
+        return false;
+    }
+    
+    if (!userId) {
+        console.error('❌ CANNOT EMIT: Missing userId');
+        return false;
+    }
+    
+    console.log('✅ All requirements met, preparing emit...');
     
     const now = Date.now();
     const videoState = {
@@ -1644,18 +1674,31 @@ function emitVideoStateDirect(action, time, isPlaying) {
     lastVideoState = videoState;
     lastStateUpdateTime = now;
     
-    console.log('🚀 DIRECT EMIT: Sending video-state-update from user:', userId);
-    console.log('  Room:', currentRoom, 'Action:', action, 'Time:', time, 'IsPlaying:', isPlaying);
+    const emitData = {
+        roomCode: currentRoom,
+        videoState: videoState
+    };
+    
+    console.log('🚀 DIRECT EMIT: Preparing to send video-state-update');
+    console.log('  User:', userId);
+    console.log('  Room:', currentRoom);
+    console.log('  Action:', action);
+    console.log('  Time:', time);
+    console.log('  IsPlaying:', isPlaying);
+    console.log('  Emit data:', JSON.stringify(emitData, null, 2));
+    console.log('  Socket object:', socket);
+    console.log('  Socket.connected:', socket?.connected);
+    console.log('  Socket.id:', socket?.id);
     
     try {
-        socket.emit('video-state-update', {
-            roomCode: currentRoom,
-            videoState: videoState
-        });
-        console.log('✅ DIRECT EMIT: Successfully sent from user:', userId);
+        console.log('📤 Calling socket.emit now...');
+        socket.emit('video-state-update', emitData);
+        console.log('✅ DIRECT EMIT: socket.emit() called successfully');
+        console.log('   If server receives this, you should see "SERVER RECEIVED" in server logs');
         return true;
     } catch (error) {
         console.error('❌ DIRECT EMIT ERROR:', error);
+        console.error('   Error stack:', error.stack);
         return false;
     }
 }
