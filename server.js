@@ -427,31 +427,52 @@ io.on('connection', (socket) => {
   });
 
   // Video state update (play, pause, seek, timeupdate)
+  // ALLOW FREE-FOR-ALL: Anyone can control (uploader or viewer)
   socket.on('video-state-update', (data) => {
     const { roomCode, videoState } = data;
     const room = rooms.get(roomCode);
 
-    if (room && room.currentVideo) {
-      // Only update if this state is newer than what we have
-      const currentTimestamp = room.videoState?.timestamp || 0;
-      const newTimestamp = videoState.timestamp || Date.now();
-      
-      if (newTimestamp >= currentTimestamp) {
-        room.videoState = {
-          ...videoState,
-          lastUpdatedAt: new Date().toISOString()
-        };
+    if (!room) {
+      console.log('⚠️ Cannot process video-state-update: room not found:', roomCode);
+      return;
+    }
 
-        // Broadcast to others in room (not sender)
-        // Send in consistent format: { videoState: ... } to match client expectation
-        // Client handles both { videoState: ... } and direct videoState object
-        console.log('📤 Broadcasting video-state-update to room:', roomCode, 'Action:', videoState.action, 'From user:', videoState.lastUpdatedBy);
-        socket.to(roomCode).emit('video-state-update', { videoState: room.videoState });
-      } else {
-        console.log('Ignoring older state update:', newTimestamp, 'vs', currentTimestamp);
-      }
+    if (!room.currentVideo) {
+      console.log('⚠️ Cannot process video-state-update: no video in room');
+      return;
+    }
+
+    if (!videoState || !videoState.lastUpdatedBy) {
+      console.log('⚠️ Cannot process video-state-update: invalid videoState:', videoState);
+      return;
+    }
+
+    // Only update if this state is newer than what we have (allows same timestamp)
+    const currentTimestamp = room.videoState?.timestamp || 0;
+    const newTimestamp = videoState.timestamp || Date.now();
+    
+    if (newTimestamp >= currentTimestamp) {
+      room.videoState = {
+        ...videoState,
+        lastUpdatedAt: new Date().toISOString()
+      };
+
+      // Broadcast to ALL others in room (not sender) - FREE FOR ALL CONTROL
+      // Send in consistent format: { videoState: ... } to match client expectation
+      const clientsInRoom = io.sockets.adapter.rooms.get(roomCode);
+      const clientCount = clientsInRoom ? clientsInRoom.size : 0;
+      
+      console.log('📤 Broadcasting video-state-update to room:', roomCode);
+      console.log('   Action:', videoState.action);
+      console.log('   From user:', videoState.lastUpdatedBy);
+      console.log('   Time:', videoState.currentTime);
+      console.log('   IsPlaying:', videoState.isPlaying);
+      console.log('   Clients in room:', clientCount);
+      
+      // Use io.to() to broadcast to all in room except sender (free-for-all control)
+      socket.to(roomCode).emit('video-state-update', { videoState: room.videoState });
     } else {
-      console.log('⚠️ Cannot process video-state-update: room or video missing');
+      console.log('⚠️ Ignoring older state update:', newTimestamp, 'vs', currentTimestamp);
     }
   });
 

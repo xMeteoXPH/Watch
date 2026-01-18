@@ -779,11 +779,13 @@ function connectToServer() {
     });
 
     // Video state update from others
+    // FREE-FOR-ALL: Anyone can control and all actions sync to everyone
     socket.on('video-state-update', (data) => {
         // Server sends videoState wrapped in object: { videoState: ... }
         // Also handle direct videoState object for backward compatibility
         const videoState = data.videoState || data;
-        console.log('📥 Received video-state-update event');
+        
+        console.log('📥 Received video-state-update event (FREE-FOR-ALL sync)');
         console.log('  Raw data:', data);
         console.log('  Extracted videoState:', videoState);
         console.log('  From user:', videoState.lastUpdatedBy, '| My userId:', userId);
@@ -794,12 +796,15 @@ function connectToServer() {
             return;
         }
         
+        // FREE-FOR-ALL: Apply state from ANY user (except ourselves)
+        // This allows uploader to control viewer, and viewer to control uploader
         if (videoState.lastUpdatedBy !== userId) {
-            console.log('✅ Applying video state from another user (bidirectional sync)');
+            console.log('✅ Applying video state from another user (FREE-FOR-ALL bidirectional sync)');
+            console.log('   This update will sync to all clients in the room');
             // Always try to apply, even if we're syncing (the apply function will queue if needed)
             applyVideoState(videoState);
         } else {
-            console.log('⚠️ Ignoring own video state update (normal for custom controls that emit directly)');
+            console.log('⚠️ Ignoring own video state update (we sent this, others will receive it)');
         }
     });
 }
