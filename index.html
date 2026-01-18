@@ -74,14 +74,14 @@
                                 <p class="sync-indicator" id="syncIndicator" style="display: none;">🔄 Video playback is synchronized</p>
                             </div>
                             <div class="player-wrapper">
-                                <video id="videoPlayer" controls playsinline webkit-playsinline x5-playsinline x5-video-player-type="h5" x5-video-orientation="portraint" preload="auto" style="touch-action: manipulation; -webkit-touch-callout: none;">
+                                <video id="videoPlayer" controls playsinline webkit-playsinline x5-playsinline x5-video-player-type="h5" x5-video-orientation="portraint" preload="auto" style="touch-action: manipulation; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none;">
                                     <source id="videoSource" src="" type="video/mp4">
                                     Your browser does not support the video tag.
                                 </video>
                                 <div class="custom-controls" id="customControls" style="display: none;">
-                                    <button class="control-btn" onclick="skipBackward()" title="Rewind 10 seconds" data-action="skipBackward">⏪ -10s</button>
-                                    <button class="control-btn" onclick="togglePlayPause()" id="playPauseBtn" title="Play/Pause" data-action="togglePlayPause">⏸️</button>
-                                    <button class="control-btn" onclick="skipForward()" title="Forward 10 seconds" data-action="skipForward">⏩ +10s</button>
+                                    <button class="control-btn" onclick="skipBackward()" title="Rewind 10 seconds">⏪ -10s</button>
+                                    <button class="control-btn" onclick="togglePlayPause()" id="playPauseBtn" title="Play/Pause">⏸️</button>
+                                    <button class="control-btn" onclick="skipForward()" title="Forward 10 seconds">⏩ +10s</button>
                                 </div>
                                 <div class="subtitle-overlay" id="subtitleOverlay">
                                     <div class="subtitle-text" id="subtitleText"></div>

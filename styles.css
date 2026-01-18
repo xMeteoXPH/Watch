@@ -172,6 +172,10 @@ main {
     padding: 0.4rem 0.8rem;
     border-radius: 15px;
     backdrop-filter: blur(10px);
+    /* Mobile compatibility - ensure controls are always accessible */
+    pointer-events: auto;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
 }
 
 .control-btn {
