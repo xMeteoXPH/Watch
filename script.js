@@ -1681,7 +1681,7 @@ function emitVideoStateDirect(action, time, isPlaying) {
     }
 }
 
-// Skip forward 10 seconds - VIEWER CONTROLS: Use same sync method as uploader
+// Skip forward 10 seconds - VIEWER CONTROLS: Force sync to work (bypass isSyncing)
 function skipForward() {
     const videoPlayer = document.getElementById('videoPlayer');
     if (!videoPlayer || !currentVideo) {
@@ -1696,18 +1696,22 @@ function skipForward() {
         return;
     }
     
+    // FORCE SYNC: Temporarily clear isSyncing to ensure sync works
+    const wasSyncing = isSyncing;
+    isSyncing = false;
+    
     const newTime = Math.min(videoPlayer.currentTime + 10, videoPlayer.duration);
     videoPlayer.currentTime = newTime;
     
-    // Use SAME sync method as uploader's native seeked event
     setTimeout(() => {
         if (currentRoom) {
             updateVideoStateInRoom('seek', videoPlayer.currentTime);
         }
+        isSyncing = wasSyncing;
     }, 150);
 }
 
-// Skip backward 10 seconds - VIEWER CONTROLS: Use same sync method as uploader
+// Skip backward 10 seconds - VIEWER CONTROLS: Force sync to work (bypass isSyncing)
 function skipBackward() {
     const videoPlayer = document.getElementById('videoPlayer');
     if (!videoPlayer || !currentVideo) {
@@ -1722,18 +1726,22 @@ function skipBackward() {
         return;
     }
     
+    // FORCE SYNC: Temporarily clear isSyncing to ensure sync works
+    const wasSyncing = isSyncing;
+    isSyncing = false;
+    
     const newTime = Math.max(videoPlayer.currentTime - 10, 0);
     videoPlayer.currentTime = newTime;
     
-    // Use SAME sync method as uploader's native seeked event
     setTimeout(() => {
         if (currentRoom) {
             updateVideoStateInRoom('seek', videoPlayer.currentTime);
         }
+        isSyncing = wasSyncing;
     }, 150);
 }
 
-// Toggle play/pause - VIEWER CONTROLS: Use same sync method as uploader
+// Toggle play/pause - VIEWER CONTROLS: Force sync to work (bypass isSyncing)
 function togglePlayPause() {
     const videoPlayer = document.getElementById('videoPlayer');
     if (!videoPlayer || !currentVideo) {
@@ -1743,7 +1751,6 @@ function togglePlayPause() {
     
     if (!currentRoom || !socket || !isConnected) {
         console.warn('Cannot toggle play/pause: not in room or not connected');
-        // Still allow local play/pause even if not connected
         if (!videoPlayer.paused) {
             videoPlayer.pause();
         } else {
@@ -1754,33 +1761,41 @@ function togglePlayPause() {
     
     const wasPaused = videoPlayer.paused;
     
-    // Don't set isSyncing - let updateVideoStateInRoom handle it like uploader does
+    // FORCE SYNC: Temporarily clear isSyncing to ensure sync works
+    const wasSyncing = isSyncing;
+    isSyncing = false;
+    
     if (wasPaused) {
         // Will play
         const playPromise = videoPlayer.play();
         if (playPromise !== undefined) {
             playPromise.then(() => {
-                // Use SAME sync method as uploader's native events
                 setTimeout(() => {
                     if (!videoPlayer.paused && currentRoom) {
                         updateVideoStateInRoom('play', videoPlayer.currentTime);
                     }
+                    isSyncing = wasSyncing;
                 }, 100);
-            }).catch(e => console.error('Play failed:', e));
+            }).catch(e => {
+                console.error('Play failed:', e);
+                isSyncing = wasSyncing;
+            });
         } else {
             setTimeout(() => {
                 if (!videoPlayer.paused && currentRoom) {
                     updateVideoStateInRoom('play', videoPlayer.currentTime);
                 }
+                isSyncing = wasSyncing;
             }, 100);
         }
     } else {
-        // Will pause - use SAME sync method as uploader
+        // Will pause
         videoPlayer.pause();
         setTimeout(() => {
             if (videoPlayer.paused && currentRoom) {
                 updateVideoStateInRoom('pause', videoPlayer.currentTime);
             }
+            isSyncing = wasSyncing;
         }, 50);
     }
 }
