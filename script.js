@@ -809,11 +809,15 @@ function connectToServer() {
         // This allows uploader to control viewer, and viewer to control uploader
         if (videoState.lastUpdatedBy !== userId) {
             console.log('✅ Applying video state from another user (FREE-FOR-ALL bidirectional sync)');
+            console.log('   Action:', videoState.action);
+            console.log('   From user:', videoState.lastUpdatedBy, '| My userId:', userId);
+            console.log('   IsPlaying:', videoState.isPlaying, '| CurrentTime:', videoState.currentTime);
             console.log('   This update will sync to all clients in the room');
             // Always try to apply, even if we're syncing (the apply function will queue if needed)
             applyVideoState(videoState);
         } else {
             console.log('⚠️ Ignoring own video state update (we sent this, others will receive it)');
+            console.log('   Action:', videoState.action, '| My userId:', userId);
         }
     });
 }
@@ -2040,15 +2044,29 @@ function togglePlayPause() {
             // Will pause - ALWAYS sync to everyone (Android/iOS/Windows)
             console.log('⏸️ PAUSE ACTION: Will sync to all users on all platforms');
             videoPlayer.pause();
-            // Longer timeout for mobile to ensure pause state is set
-            setTimeout(() => {
-                if (videoPlayer.paused && currentRoom && currentVideo && socket && isConnected) {
-                    console.log('📤 EMITTING: Pause sync from user', userId, '(Android/iOS/Windows)');
-                    updateVideoStateInRoom('pause', videoPlayer.currentTime);
-                } else {
-                    console.warn('⚠️ Cannot emit pause - missing requirements');
-                }
-            }, 150); // Longer delay for mobile
+            
+            // CRITICAL: Emit pause IMMEDIATELY - don't wait for timeout
+            // Pause is instant, so we can sync right away
+            if (currentRoom && currentVideo && socket && isConnected) {
+                console.log('📤 EMITTING: Pause sync IMMEDIATELY from user', userId, '(Android/iOS/Windows)');
+                console.log('   Current time:', videoPlayer.currentTime);
+                console.log('   Paused state:', videoPlayer.paused);
+                // Emit immediately - pause is instant
+                updateVideoStateInRoom('pause', videoPlayer.currentTime);
+            } else {
+                console.error('❌ CANNOT EMIT PAUSE - Missing requirements:');
+                console.error('   currentRoom:', !!currentRoom, currentRoom);
+                console.error('   currentVideo:', !!currentVideo, currentVideo);
+                console.error('   socket:', !!socket);
+                console.error('   isConnected:', isConnected);
+                // Still try after delay as fallback
+                setTimeout(() => {
+                    if (videoPlayer.paused && currentRoom && currentVideo && socket && isConnected) {
+                        console.log('📤 EMITTING: Pause sync (fallback) from user', userId);
+                        updateVideoStateInRoom('pause', videoPlayer.currentTime);
+                    }
+                }, 100);
+            }
         }
     } catch (error) {
         console.error('❌ ERROR in togglePlayPause:', error);
@@ -2407,21 +2425,37 @@ function applyPlayPauseState(videoState) {
         ? videoState.isPlaying 
         : (videoState.action === 'play');
     
-    console.log('Applying play/pause state. Action:', videoState.action, 'Should be playing:', shouldBePlaying, 'Currently paused:', videoPlayer.paused);
+    console.log('🎬 Applying play/pause state. Action:', videoState.action, 'Should be playing:', shouldBePlaying, 'Currently paused:', videoPlayer.paused);
+    console.log('   From user:', videoState.lastUpdatedBy, 'My userId:', userId);
+    console.log('   VideoState.isPlaying:', videoState.isPlaying);
+    
+    // CRITICAL: For pause action, ALWAYS pause regardless of isPlaying field
+    if (videoState.action === 'pause') {
+        console.log('⏸️ PAUSE ACTION DETECTED - Forcing pause immediately');
+        if (!videoPlayer.paused) {
+            videoPlayer.pause();
+            console.log('✅ Video paused successfully');
+        } else {
+            console.log('✅ Video already paused');
+        }
+        updatePlayPauseButton();
+        finishSync();
+        return;
+    }
     
     // Sync play/pause state based on isPlaying field (works for all action types)
     if (shouldBePlaying && videoPlayer.paused) {
-        console.log('Syncing play (video should be playing but is paused)');
+        console.log('▶️ Syncing play (video should be playing but is paused)');
         const playPromise = videoPlayer.play();
         if (playPromise !== undefined) {
             playPromise
                 .then(() => {
-                    console.log('Play synced successfully');
+                    console.log('✅ Play synced successfully');
                     updatePlayPauseButton();
                     finishSync();
                 })
                 .catch(e => {
-                    console.error('Play failed during sync:', e);
+                    console.error('❌ Play failed during sync:', e);
                     finishSync();
                 });
         } else {
@@ -2429,8 +2463,10 @@ function applyPlayPauseState(videoState) {
             finishSync();
         }
     } else if (!shouldBePlaying && !videoPlayer.paused) {
-        console.log('Syncing pause (video should be paused but is playing)');
+        console.log('⏸️ Syncing pause (video should be paused but is playing)');
+        console.log('   Action:', videoState.action, 'isPlaying:', videoState.isPlaying);
         videoPlayer.pause();
+        console.log('✅ Video paused successfully via applyPlayPauseState');
         updatePlayPauseButton();
         finishSync();
     } else {
