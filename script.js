@@ -14,7 +14,7 @@ let chatMessages = [];
 let roomUsers = [];
 
 // Backend server connection
-const SERVER_URL = 'https://watch-production-e219.up.railway.app';
+const SERVER_URL = 'https://moviehub.up.railway.app';
 let socket = null;
 let isConnected = false;
 
