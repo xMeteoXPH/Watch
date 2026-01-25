@@ -27,6 +27,9 @@ let lastStateUpdateTime = 0; // Track when we last sent a state update
 let pendingStateUpdate = null; // Queue for pending state updates
 let lastReceivedStateTimestamp = 0; // Track most recent received state timestamp
 
+// Watch mode: 'virtual' = Virtual Browser (no upload UI), 'upload' = Upload & Watch
+let watchMode = 'virtual';
+
 // ==========================
 // SYNC PROTOCOL v2 (cross-platform)
 // - No timeupdate spam
@@ -1062,6 +1065,25 @@ function updateRoomURL(roomCode) {
     window.history.pushState({}, '', url);
 }
 
+// Switch between Virtual Browser and Upload & Watch modes
+function setWatchMode(mode) {
+    watchMode = mode === 'upload' ? 'upload' : 'virtual';
+    const btnV = document.getElementById('modeBtnVirtual');
+    const btnU = document.getElementById('modeBtnUpload');
+    const hint = document.getElementById('modeHint');
+    const uploadSection = document.getElementById('uploadSection');
+    const vbPanel = document.getElementById('virtualBrowserPanel');
+    if (btnV) btnV.classList.toggle('active', watchMode === 'virtual');
+    if (btnU) btnU.classList.toggle('active', watchMode === 'upload');
+    if (hint) {
+        hint.textContent = watchMode === 'virtual'
+            ? 'One shared player — everyone in the room can play, pause, or seek. Same view on all devices.'
+            : 'Upload a video to watch together. Everyone can control playback.';
+    }
+    if (uploadSection) uploadSection.style.display = watchMode === 'upload' ? 'block' : 'none';
+    if (vbPanel) vbPanel.style.display = watchMode === 'virtual' ? 'block' : 'none';
+}
+
 // Show room interface
 function showRoomInterface() {
     document.getElementById('roomActions').style.display = 'none';
@@ -1088,6 +1110,9 @@ function showRoomInterface() {
     loadRoomData();
     updateUserCount();
     updateChatDisplay();
+
+    // Show Virtual Browser mode by default; toggle shows/hides upload
+    setWatchMode(watchMode);
 }
 
 // Load room data (no longer needed with WebSocket, but kept for compatibility)

@@ -67,6 +67,13 @@
                         </div>
                     </div>
 
+                    <div class="mode-toggle" id="modeToggle">
+                        <span class="mode-label">Watch mode:</span>
+                        <button type="button" class="mode-btn active" id="modeBtnVirtual" data-mode="virtual" onclick="setWatchMode('virtual')">🌐 Virtual Browser</button>
+                        <button type="button" class="mode-btn" id="modeBtnUpload" data-mode="upload" onclick="setWatchMode('upload')">📁 Upload & Watch</button>
+                    </div>
+                    <p class="mode-hint" id="modeHint">One shared player — everyone in the room can play, pause, or seek. Same view on all devices.</p>
+
                     <div class="watch-section">
                         <div class="video-player-container">
                             <h2 class="section-title">Movie Player</h2>
@@ -93,7 +100,7 @@
                             </div>
                         </div>
 
-                        <div class="upload-section">
+                        <div class="upload-section" id="uploadSection">
                             <h3 class="upload-title">Upload Your Movie</h3>
                             <div class="upload-box" id="uploadBox">
                                 <input type="file" id="fileInput" accept="video/mp4,video/mkv,video/*" style="display: none;">
@@ -120,6 +127,12 @@
                                     <button class="remove-subtitle-btn" onclick="removeSubtitle()">Remove</button>
                                 </div>
                             </div>
+                        </div>
+
+                        <div class="virtual-browser-panel" id="virtualBrowserPanel" style="display: none;">
+                            <div class="vb-badge">🌐 Virtual Browser</div>
+                            <p class="vb-desc">One shared player — everyone watches the same video and anyone can play, pause, or ±10s.</p>
+                            <p class="vb-hint">No upload here. Use <strong>Upload & Watch</strong> mode to load a video, or wait for someone else in the room to do so.</p>
                         </div>
                     </div>
                     
