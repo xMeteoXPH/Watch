@@ -484,8 +484,9 @@ io.on('connection', (socket) => {
       updatedAt: new Date().toISOString()
     };
 
-    // Broadcast to everyone EXCEPT the sender (sender already applied locally)
-    socket.to(roomCode).emit('video-control', {
+    // VIRTUAL BROWSER: Broadcast to ALL (including sender). Server is single source of truth.
+    // Everyone applies the same state → no sync loops, no "my device pauses itself".
+    io.to(roomCode).emit('video-control', {
       state: room.videoState,
       protocol: 2
     });

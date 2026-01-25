@@ -858,13 +858,7 @@ function connectToServer() {
     // ==========================
     socket.on('video-control', (data) => {
         const state = data?.state || data;
-        
-        // CRITICAL: Double-check we're not applying our own state (extra safety)
-        if (state && state.lastUpdatedBy === userId) {
-            console.log('⚠️ Ignoring own video-control state (we sent this)');
-            return;
-        }
-        
+        // VIRTUAL BROWSER: Apply server state for everyone (including sender). Single source of truth.
         applyVideoControlStateV2(state);
         tryApplyPendingStateV2();
     });
@@ -1662,26 +1656,10 @@ function emitVideoControlV2(action, time = null) {
 
 function applyVideoControlStateV2(state) {
     if (!syncV2.enabled || !state) return;
-    if (typeof state.version === 'number' && state.version <= syncV2.version) {
-        console.log(`⏸️ applyVideoControlStateV2: Ignoring older version ${state.version} (current: ${syncV2.version})`);
-        return;
-    }
-
-    // CRITICAL: Ignore our own state updates (by userId)
-    // The server should exclude sender, but this is an extra safety check
-    if (state.lastUpdatedBy === userId) {
-        console.log(`⏸️ applyVideoControlStateV2: Ignoring own state (we sent this)`);
-        return; // We sent this, don't apply it back to ourselves
-    }
-    
-    console.log(`📥 applyVideoControlStateV2: Applying ${state.action} from user ${state.lastUpdatedBy}, version ${state.version}`);
+    if (typeof state.version === 'number' && state.version <= syncV2.version) return;
 
     // Update version first to prevent re-entrancy loops
     if (typeof state.version === 'number') syncV2.version = state.version;
-
-    // Suppress emitting from native events triggered by this apply
-    // Use longer window on mobile where events can be delayed
-    syncV2.suppressNativeUntil = Date.now() + 1500;
 
     // If we don't have the right video loaded yet, queue the state
     if (!currentVideo || currentVideo.id !== state.videoId) {
@@ -1694,30 +1672,19 @@ function applyVideoControlStateV2(state) {
 
     const shouldPlay = !!state.isPlaying;
     const isCurrentlyPlaying = !videoPlayer.paused;
-    
-    // CRITICAL: Skip if already in desired state (prevents pause-after-play bug on mobile)
-    // Mobile browsers can trigger unwanted side effects if you call play() when already playing
+    const desiredTime = typeof state.currentTime === 'number' ? state.currentTime : videoPlayer.currentTime;
+    const timeDiff = Math.abs(videoPlayer.currentTime - desiredTime);
+
+    // Skip play/pause if already in desired state (avoids double play() on mobile)
     if (shouldPlay === isCurrentlyPlaying && state.action !== 'seek') {
-        console.log(`⏸️ applyVideoControlStateV2: Already in correct state (${shouldPlay ? 'playing' : 'paused'}), skipping play/pause`);
-        // Already in correct state, just update time if needed (for seek we still want to apply)
-        const desiredTime = typeof state.currentTime === 'number' ? state.currentTime : videoPlayer.currentTime;
-        const timeDiff = Math.abs(videoPlayer.currentTime - desiredTime);
-        if (timeDiff > 0.35) {
-            videoPlayer.currentTime = desiredTime;
-        }
-        // Still update version to prevent re-applying
-        if (typeof state.version === 'number') syncV2.version = state.version;
-        return; // Don't change play/pause state if already correct
+        if (timeDiff > 0.35) videoPlayer.currentTime = desiredTime;
+        return;
     }
 
     syncV2.applying = true;
 
     try {
-        const desiredTime = typeof state.currentTime === 'number' ? state.currentTime : videoPlayer.currentTime;
-        const timeDiff = Math.abs(videoPlayer.currentTime - desiredTime);
-        if (timeDiff > 0.35) {
-            videoPlayer.currentTime = desiredTime;
-        }
+        if (timeDiff > 0.35) videoPlayer.currentTime = desiredTime;
 
         // Release apply lock when the media actually reaches the target state,
         // not on a fixed short timer (mobile Safari can be slow to fire events).
@@ -1792,54 +1759,8 @@ function setupVideoSyncV2() {
         updateSubtitles(videoPlayer.currentTime);
     });
 
-    // Local -> room (only when user-initiated; ignore when applying remote state)
-    const emitIfUser = (action, e) => {
-        if (!syncV2.enabled) return;
-        if (syncV2.applying) {
-            console.log(`⏸️ emitIfUser(${action}): blocked (applying remote state)`);
-            return;
-        }
-        
-        // CRITICAL: Check suppress window FIRST (before any other checks)
-        // This prevents emission when togglePlayPause() triggered the play/pause
-        const now = Date.now();
-        if (now < syncV2.suppressNativeUntil) {
-            console.log(`⏸️ emitIfUser(${action}): blocked by suppressNativeUntil (${syncV2.suppressNativeUntil - now}ms remaining)`);
-            return; // We're in suppress window (programmatic play/pause, or remote sync applied)
-        }
-        
-        if (!currentRoom || !socket || !isConnected || !currentVideo) return;
-        
-        // Only emit for REAL user actions from native controls (prevents loops/duplicates).
-        // However, on mobile, even programmatic play() might fire isTrusted=true events,
-        // so we rely more on suppressNativeUntil than isTrusted
-        // if (e && e.isTrusted === false) return; // Disabled: mobile browsers are inconsistent
-        
-        // Extra safety: don't emit if we just emitted the same action recently
-        // (native events might fire multiple times on mobile)
-        const key = `${action}:${Math.floor(videoPlayer.currentTime * 10)}`;
-        if (now - syncV2.lastEmitAt < 200 && syncV2.lastEmitKey === key) {
-            console.log(`⏸️ emitIfUser(${action}): blocked (recent duplicate, ${now - syncV2.lastEmitAt}ms ago)`);
-            return; // Recent duplicate
-        }
-        
-        console.log(`📤 emitIfUser(${action}): Emitting (native event)`);
-        emitVideoControlV2(action, videoPlayer.currentTime);
-    };
-
-    videoPlayer.addEventListener('play', (e) => emitIfUser('play', e));
-    videoPlayer.addEventListener('pause', (e) => emitIfUser('pause', e));
-
-    // Seek (native scrubbing)
-    videoPlayer.addEventListener('seeked', (e) => {
-        if (syncV2.applying) return;
-        if (Date.now() < syncV2.suppressNativeUntil) return;
-        if (e && e.isTrusted === false) return;
-        const now = Date.now();
-        if (now - syncV2.lastSeekEmitAt < 250) return; // debounce
-        syncV2.lastSeekEmitAt = now;
-        emitIfUser('seek', e);
-    });
+    // VIRTUAL BROWSER: We only emit from button clicks (togglePlayPause, skipForward, skipBackward).
+    // No native play/pause/seeked → emit. Server is source of truth; everyone applies same state.
 
     // Keep UI in sync
     videoPlayer.addEventListener('play', updatePlayPauseButton);
@@ -1849,7 +1770,7 @@ function setupVideoSyncV2() {
         tryApplyPendingStateV2();
     });
 
-    console.log('✅ Video sync v2 event listeners set up');
+    console.log('✅ Video sync v2 (virtual browser) set up');
 }
 
 // Setup video sync event listeners (only once)
@@ -2259,58 +2180,26 @@ function skipBackward() {
     }
 }
 
-// Toggle play/pause - MOBILE COMPATIBLE: Works on Android, iOS, Windows
-// FREE-FOR-ALL: Works for UPLOADER AND VIEWER on ALL platforms
+// Toggle play/pause - VIRTUAL BROWSER: local action + emit. Server broadcasts to all; everyone applies.
 function togglePlayPause() {
     const videoPlayer = document.getElementById('videoPlayer');
     if (!videoPlayer) return;
-
-    // CRITICAL: Prevent re-entry (button might be clicked multiple times rapidly)
-    if (syncV2.applying) {
-        console.log('⏸️ togglePlayPause: blocked (already applying remote state)');
-        return;
-    }
+    if (syncV2.applying) return;
 
     const wasPaused = videoPlayer.paused;
-    const now = Date.now();
-    
-    // CRITICAL: Set suppress window BEFORE any play/pause to catch native events
-    // Use a longer window to prevent delayed native events on mobile (especially Safari)
-    syncV2.suppressNativeUntil = now + 1200;
-    console.log(`🎮 togglePlayPause: ${wasPaused ? 'PLAY' : 'PAUSE'} - suppressNativeUntil set to ${now + 1200}`);
-
-    // Local action first (user gesture -> required for iOS Safari)
     if (wasPaused) {
         const p = videoPlayer.play();
-        if (p && typeof p.catch === 'function') {
-            p.catch(() => {});
-        }
-        // Emit v2 after a delay (native event listener will be suppressed by suppressNativeUntil)
-        // This prevents double-emit: we emit here, native event is suppressed
+        if (p && typeof p.catch === 'function') p.catch(() => {});
         setTimeout(() => {
-            if (!syncV2.applying && currentRoom && socket && isConnected && currentVideo) {
-                // Double-check we're still in the desired state (might have changed via remote)
-                if (!videoPlayer.paused) {
-                    console.log('📤 togglePlayPause: Emitting PLAY control');
-                    emitVideoControlV2('play', videoPlayer.currentTime);
-                } else {
-                    console.log('⚠️ togglePlayPause: Play was interrupted (video is paused now)');
-                }
-            }
-        }, 100);
+            if (!syncV2.applying && currentRoom && socket && isConnected && currentVideo && !videoPlayer.paused)
+                emitVideoControlV2('play', videoPlayer.currentTime);
+        }, 80);
     } else {
         videoPlayer.pause();
         setTimeout(() => {
-            if (!syncV2.applying && currentRoom && socket && isConnected && currentVideo) {
-                // Double-check we're still in the desired state (might have changed via remote)
-                if (videoPlayer.paused) {
-                    console.log('📤 togglePlayPause: Emitting PAUSE control');
-                    emitVideoControlV2('pause', videoPlayer.currentTime);
-                } else {
-                    console.log('⚠️ togglePlayPause: Pause was interrupted (video is playing now)');
-                }
-            }
-        }, 50);
+            if (!syncV2.applying && currentRoom && socket && isConnected && currentVideo && videoPlayer.paused)
+                emitVideoControlV2('pause', videoPlayer.currentTime);
+        }, 30);
     }
 }
 
